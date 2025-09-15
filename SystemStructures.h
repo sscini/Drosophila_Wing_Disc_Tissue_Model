@@ -33,6 +33,7 @@
 #include <thrust/random/uniform_real_distribution.h>
 #include <stdint.h>
 #include <thrust/sequence.h>
+#include <thrust/host_vector.h>
 
 // Type Aliases
 typedef thrust::tuple<int, bool, double> Tubd;
@@ -213,10 +214,25 @@ struct AddForceFunctorAlt {
 //#endif // SYSTEMSTRUCTURES_H_
 
 
-// Functor for element-wise addition of two UCVec3 tuples.
-struct UCVec3Add : public thrust::binary_function<UCVec3, UCVec3, UCVec3> {
-    __host__ __device__
-    UCVec3 operator()(const UCVec3& vec1, const UCVec3& vec2) {
+// Functor for element-wise addition of two UCVec3 tuples. This version is deprecated. New function to be defined. 
+//struct UCVec3Add : public thrust::binary_function<UCVec3, UCVec3, UCVec3> {
+//    __host__ __device__
+//    UCVec3 operator()(const UCVec3& vec1, const UCVec3& vec2) {
+//        return thrust::make_tuple(
+//            thrust::get<0>(vec1) + thrust::get<0>(vec2),
+//            thrust::get<1>(vec1) + thrust::get<1>(vec2),
+//            thrust::get<2>(vec1) + thrust::get<2>(vec2),
+//            thrust::get<3>(vec1) + thrust::get<3>(vec2)
+//        );
+//    }
+//};
+
+struct UCVec3Add {
+    using first_argument_type = UCVec3;
+    using second_argument_type = UCVec3;
+    using result_type = UCVec3;
+    
+    __host__ __device__ UCVec3 operator() (const UCVec3& vec1, const UCVec3& vec2){
         return thrust::make_tuple(
             thrust::get<0>(vec1) + thrust::get<0>(vec2),
             thrust::get<1>(vec1) + thrust::get<1>(vec2),
@@ -226,28 +242,57 @@ struct UCVec3Add : public thrust::binary_function<UCVec3, UCVec3, UCVec3> {
     }
 };
 
-// Functor for element-wise addition of two CVec3 tuples.
-struct CVec3Add : public thrust::binary_function<CVec3, CVec3, CVec3> {
-    __host__ __device__
-    CVec3 operator()(const CVec3& vec1, const CVec3& vec2) {
+//// Functor for element-wise addition of two CVec3 tuples.
+//struct CVec3Add : public thrust::binary_function<CVec3, CVec3, CVec3> {
+//    __host__ __device__
+//    CVec3 operator()(const CVec3& vec1, const CVec3& vec2) {
+//        return thrust::make_tuple(
+//            thrust::get<0>(vec1) + thrust::get<0>(vec2),
+//            thrust::get<1>(vec1) + thrust::get<1>(vec2),
+//            thrust::get<2>(vec1) + thrust::get<2>(vec2)
+//        );
+//    }
+//};
+
+struct CVec3Add {
+    using first_argument_type = CVec3;
+    using second_argument_type = CVec3;
+    using result_type = CVec3;
+    
+    __host__ __device__ CVec3 operator()(const CVec3& vec1, const CVec3& vec2){
         return thrust::make_tuple(
             thrust::get<0>(vec1) + thrust::get<0>(vec2),
             thrust::get<1>(vec1) + thrust::get<1>(vec2),
-            thrust::get<2>(vec1) + thrust::get<2>(vec2)
+            thrust::get<2>(vec1) + thrust::get<2>(vec2)            
         );
     }
 };
 
-// Functor for element-wise addition of two CVec4 tuples.
-struct CVec4Add : public thrust::binary_function<CVec4, CVec4, CVec4> {
-    __host__ __device__
-    CVec4 operator()(const CVec4& vec1, const CVec4& vec2) {
-        return thrust::make_tuple(
+//// Functor for element-wise addition of two CVec4 tuples.
+//struct CVec4Add : public thrust::binary_function<CVec4, CVec4, CVec4> {
+//    __host__ __device__
+//    CVec4 operator()(const CVec4& vec1, const CVec4& vec2) {
+//        return thrust::make_tuple(
+//            thrust::get<0>(vec1) + thrust::get<0>(vec2),
+//            thrust::get<1>(vec1) + thrust::get<1>(vec2),
+//            thrust::get<2>(vec1) + thrust::get<2>(vec2),
+//            thrust::get<3>(vec1) + thrust::get<3>(vec2)
+//        );
+//    }
+//};
+
+struct CVec4Add {
+    using first_argument_type = CVec4;
+    using second_argument_type = CVec4;
+    using result_type = CVec4;
+    
+    __host__ __device__ CVec4 operator()(const CVec4& vec1, const CVec4& vec2){
+         return thrust::make_tuple(
             thrust::get<0>(vec1) + thrust::get<0>(vec2),
             thrust::get<1>(vec1) + thrust::get<1>(vec2),
             thrust::get<2>(vec1) + thrust::get<2>(vec2),
             thrust::get<3>(vec1) + thrust::get<3>(vec2)
-        );
+         );
     }
 };
 
@@ -435,7 +480,7 @@ struct tupleEqual {
     __host__ __device__
     bool operator()(Tuu x, Tuu y) {
         // Returns true if both elements of the two tuples are equal.
-        return ((x.get<0>() == y.get<0>()) && (x.get<1>() == y.get<1>()));
+        return ((thrust::get<0>(x) == thrust::get<0>(y)) && (thrust::get<1>(x) == thrust::get<1>(y)));
     }
 };
 

@@ -14,4 +14,4 @@ module load singularity
 export SINGULARITY_NV=1
 module load centos
 
-centos.sh "module load extra; module load GCCcore/4.9.3; module load cuda/9.1; ./tissue-model -dt=0.01 Data_Structures/Data_Structure.xml"
+centos.sh "module load extra; module load GCC/8.3.0; module load cuda/11.2; ./tissue-model -dt=0.01 Data_Structures/Data_Structure.xml"

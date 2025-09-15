@@ -69,7 +69,7 @@ struct CapsidInfoVecs {
     thrust::device_vector<double> nodeVelZ;
   
   	// Parameters for the linear spring connecting capsid nodes to the membrane.
-    double spring_constant = 10.0;
+    double spring_constant = 5.0;
   	double length_zero = 0.97;
   	double length_cutoff = 1.63;
   	int maxNodeCount;
@@ -293,8 +293,8 @@ struct AreaTriangleInfoVecs {
 	double dummy;
 	int factor = 3; // Used for reduction.
 	double initial_area = 0.0048013; // Initial area of triangle. 
-	double spring_constant;
-	double spring_constant_weak;
+	double spring_constant = 5.0;
+	double spring_constant_weak = 5.0;
 
 	double area_triangle_energy;
   
@@ -316,7 +316,7 @@ struct BendingTriangleInfoVecs {
 	int numBendingSprings=0;
 
 	int factor = 4; // Used for reduction.
-	double spring_constant;
+	double spring_constant = 5.0;
 	double spring_constant_weak;
 	double spring_constant_raft;
 	double spring_constant_coat;
@@ -343,14 +343,14 @@ struct BendingTriangleInfoVecs {
 // Struct to store information related to linear springs (edges).
 struct LinearSpringInfoVecs {
 
-	double apical_spring_constant;
-  double basal_spring_constant;
-  double spring_constant_vertical = 500.0; // spring constant for the vertical springs in the double layer eversion model. 
+	double apical_spring_constant = 5.0;
+  double basal_spring_constant = 5.0;
+  double spring_constant_vertical = 5.0; // spring constant for the vertical springs in the double layer eversion model. 
   
   int factor = 2; // Used for reduction.
-	double spring_constant;
-	double spring_constant_weak;
-	double spring_constant_att1;
+	double spring_constant = 5.0;
+	double spring_constant_weak = 5.0;
+	double spring_constant_att1 = 5.0;
 	double spring_constant_att2;
 	double spring_constant_rep1; // This is the "D" in Morse potential
 	double spring_constant_rep2; // This is the "a" in Morse potential

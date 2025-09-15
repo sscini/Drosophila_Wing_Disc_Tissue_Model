@@ -1,0 +1,289 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data>
+   <settings>
+      <Tau>1</Tau>
+      <KBT>1</KBT>
+      <Linear_Const>5</Linear_Const>
+      <Area_Const>1.5</Area_Const>
+      <Bend_Const>0.5</Bend_Const>
+      <LJ_Eps>20</LJ_Eps>
+      <LJ_Rmin>3.5</LJ_Rmin>
+      <LJ_Rmax>3.9051</LJ_Rmax>
+      <LJ_Const>1.5</LJ_Const>
+      <LJ_X>0</LJ_X>
+      <LJ_Y>0</LJ_Y>
+      <LJ_Z>-1.5</LJ_Z>
+   </settings>
+   <apicalNodes>
+      <node>-38.83     -23.9983      62.8283</node>
+      <node>-38.83      23.9983      62.8283</node>
+      <node>0     -40.8283      66.0615</node>
+      <node>0            0        77.66</node>
+      <node>0      40.8283      66.0615</node>
+      <node>38.83     -23.9983      62.8283</node>
+      <node>38.83      23.9983      62.8283</node>
+   </apicalNodes>
+   <basalNodes>
+      <node>-35.33     -21.8351      57.1651</node>
+      <node>-35.33      21.8351      57.1651</node>
+      <node>0     -37.1482       60.107</node>
+      <node>0            0        70.66</node>
+      <node>0      37.1482       60.107</node>
+      <node>35.33     -21.8351      57.1651</node>
+      <node>35.33      21.8351      57.1651</node>
+   </basalNodes>
+   <apical_edgeinfos>
+      <edgeinfo>1  2</edgeinfo>
+      <edgeinfo>1  3</edgeinfo>
+      <edgeinfo>1  4</edgeinfo>
+      <edgeinfo>2  4</edgeinfo>
+      <edgeinfo>2  5</edgeinfo>
+      <edgeinfo>3  4</edgeinfo>
+      <edgeinfo>3  6</edgeinfo>
+      <edgeinfo>4  5</edgeinfo>
+      <edgeinfo>4  6</edgeinfo>
+      <edgeinfo>4  7</edgeinfo>
+      <edgeinfo>5  7</edgeinfo>
+      <edgeinfo>6  7</edgeinfo>
+   </apical_edgeinfos>
+   <basal_edgeinfos>
+      <edgeinfo>8  9</edgeinfo>
+      <edgeinfo>8  10</edgeinfo>
+      <edgeinfo>8  11</edgeinfo>
+      <edgeinfo>9  11</edgeinfo>
+      <edgeinfo>9  12</edgeinfo>
+      <edgeinfo>10  11</edgeinfo>
+      <edgeinfo>10  13</edgeinfo>
+      <edgeinfo>11  12</edgeinfo>
+      <edgeinfo>11  13</edgeinfo>
+      <edgeinfo>11  14</edgeinfo>
+      <edgeinfo>12  14</edgeinfo>
+      <edgeinfo>13  14</edgeinfo>
+   </basal_edgeinfos>
+   <vertical_edgeinfos>
+      <edgeinfo>1  2</edgeinfo>
+      <edgeinfo>1  3</edgeinfo>
+      <edgeinfo>1  4</edgeinfo>
+      <edgeinfo>1  8</edgeinfo>
+      <edgeinfo>1  9</edgeinfo>
+      <edgeinfo>1  10</edgeinfo>
+      <edgeinfo>1  11</edgeinfo>
+      <edgeinfo>2  4</edgeinfo>
+      <edgeinfo>2  5</edgeinfo>
+      <edgeinfo>2  8</edgeinfo>
+      <edgeinfo>2  9</edgeinfo>
+      <edgeinfo>2  11</edgeinfo>
+      <edgeinfo>2  12</edgeinfo>
+      <edgeinfo>3  4</edgeinfo>
+      <edgeinfo>3  6</edgeinfo>
+      <edgeinfo>3  8</edgeinfo>
+      <edgeinfo>3  10</edgeinfo>
+      <edgeinfo>3  11</edgeinfo>
+      <edgeinfo>3  13</edgeinfo>
+      <edgeinfo>4  5</edgeinfo>
+      <edgeinfo>4  6</edgeinfo>
+      <edgeinfo>4  7</edgeinfo>
+      <edgeinfo>4  8</edgeinfo>
+      <edgeinfo>4  9</edgeinfo>
+      <edgeinfo>4  10</edgeinfo>
+      <edgeinfo>4  11</edgeinfo>
+      <edgeinfo>4  12</edgeinfo>
+      <edgeinfo>4  13</edgeinfo>
+      <edgeinfo>4  14</edgeinfo>
+      <edgeinfo>5  7</edgeinfo>
+      <edgeinfo>5  9</edgeinfo>
+      <edgeinfo>5  11</edgeinfo>
+      <edgeinfo>5  12</edgeinfo>
+      <edgeinfo>5  14</edgeinfo>
+      <edgeinfo>6  7</edgeinfo>
+      <edgeinfo>6  10</edgeinfo>
+      <edgeinfo>6  11</edgeinfo>
+      <edgeinfo>6  13</edgeinfo>
+      <edgeinfo>6  14</edgeinfo>
+      <edgeinfo>7  11</edgeinfo>
+      <edgeinfo>7  12</edgeinfo>
+      <edgeinfo>7  13</edgeinfo>
+      <edgeinfo>7  14</edgeinfo>
+      <edgeinfo>8  9</edgeinfo>
+      <edgeinfo>8  10</edgeinfo>
+      <edgeinfo>9  12</edgeinfo>
+      <edgeinfo>10  13</edgeinfo>
+      <edgeinfo>12  14</edgeinfo>
+      <edgeinfo>13  14</edgeinfo>
+   </vertical_edgeinfos>
+   <elems>
+      <elem>2  1  4</elem>
+      <elem>3  4  1</elem>
+      <elem>3  6  4</elem>
+      <elem>5  2  4</elem>
+      <elem>5  4  7</elem>
+      <elem>6  7  4</elem>
+      <elem>9  11   8</elem>
+      <elem>10   8  11</elem>
+      <elem>10  11  13</elem>
+      <elem>12  11   9</elem>
+      <elem>12  14  11</elem>
+      <elem>13  11  14</elem>
+      <elem>1  2  9</elem>
+      <elem>1  9  8</elem>
+      <elem>1   3  10</elem>
+      <elem>1  10   8</elem>
+      <elem>2   5  12</elem>
+      <elem>2  12   9</elem>
+      <elem>3   6  13</elem>
+      <elem>3  13  10</elem>
+      <elem>5   7  14</elem>
+      <elem>5  14  12</elem>
+      <elem>6   7  14</elem>
+      <elem>6  14  13</elem>
+      <elem>1  2  9</elem>
+      <elem>2  1  8</elem>
+      <elem>1   3  10</elem>
+      <elem>3  1  8</elem>
+      <elem>1   4  11</elem>
+      <elem>4  1  8</elem>
+      <elem>2   4  11</elem>
+      <elem>4  2  9</elem>
+      <elem>2   5  12</elem>
+      <elem>5  2  9</elem>
+      <elem>3   4  11</elem>
+      <elem>4   3  10</elem>
+      <elem>3   6  13</elem>
+      <elem>6   3  10</elem>
+      <elem>4   5  12</elem>
+      <elem>5   4  11</elem>
+      <elem>4   6  13</elem>
+      <elem>6   4  11</elem>
+      <elem>4   7  14</elem>
+      <elem>7   4  11</elem>
+      <elem>5   7  14</elem>
+      <elem>7   5  12</elem>
+      <elem>6   7  14</elem>
+      <elem>7   6  13</elem>
+   </elems>
+   <elem2edges>
+      <elem2edge>3  4  1</elem2edge>
+      <elem2edge>3  2  6</elem2edge>
+      <elem2edge>9  6  7</elem2edge>
+      <elem2edge>4  8  5</elem2edge>
+      <elem2edge>10  11   8</elem2edge>
+      <elem2edge>10   9  12</elem2edge>
+      <elem2edge>3  1  4</elem2edge>
+      <elem2edge>3  6  2</elem2edge>
+      <elem2edge>9  7  6</elem2edge>
+      <elem2edge>4  5  8</elem2edge>
+      <elem2edge>10   8  11</elem2edge>
+      <elem2edge>10  12   9</elem2edge>
+      <elem2edge>11   5   1</elem2edge>
+      <elem2edge>44   4   5</elem2edge>
+      <elem2edge>17   6   2</elem2edge>
+      <elem2edge>45   4   6</elem2edge>
+      <elem2edge>33  13   9</elem2edge>
+      <elem2edge>46  11  13</elem2edge>
+      <elem2edge>38  19  15</elem2edge>
+      <elem2edge>47  17  19</elem2edge>
+      <elem2edge>43  34  30</elem2edge>
+      <elem2edge>48  33  34</elem2edge>
+      <elem2edge>43  39  35</elem2edge>
+      <elem2edge>49  38  39</elem2edge>
+      <elem2edge>11   5   1</elem2edge>
+      <elem2edge>4  10   1</elem2edge>
+      <elem2edge>17   6   2</elem2edge>
+      <elem2edge>4  16   2</elem2edge>
+      <elem2edge>26   7   3</elem2edge>
+      <elem2edge>4  23   3</elem2edge>
+      <elem2edge>26  12   8</elem2edge>
+      <elem2edge>11  24   8</elem2edge>
+      <elem2edge>33  13   9</elem2edge>
+      <elem2edge>11  31   9</elem2edge>
+      <elem2edge>26  18  14</elem2edge>
+      <elem2edge>17  25  14</elem2edge>
+      <elem2edge>38  19  15</elem2edge>
+      <elem2edge>17  36  15</elem2edge>
+      <elem2edge>33  27  20</elem2edge>
+      <elem2edge>26  32  20</elem2edge>
+      <elem2edge>38  28  21</elem2edge>
+      <elem2edge>26  37  21</elem2edge>
+      <elem2edge>43  29  22</elem2edge>
+      <elem2edge>26  40  22</elem2edge>
+      <elem2edge>43  34  30</elem2edge>
+      <elem2edge>33  41  30</elem2edge>
+      <elem2edge>43  39  35</elem2edge>
+      <elem2edge>38  42  35</elem2edge>
+   </elem2edges>
+   <edge2elems>
+      <edge2elem>1  1</edge2elem>
+      <edge2elem>2  2</edge2elem>
+      <edge2elem>1  2</edge2elem>
+      <edge2elem>4  1</edge2elem>
+      <edge2elem>4  4</edge2elem>
+      <edge2elem>3  2</edge2elem>
+      <edge2elem>3  3</edge2elem>
+      <edge2elem>4  5</edge2elem>
+      <edge2elem>3  6</edge2elem>
+      <edge2elem>5  6</edge2elem>
+      <edge2elem>5  5</edge2elem>
+      <edge2elem>6  6</edge2elem>
+      <edge2elem>1  1</edge2elem>
+      <edge2elem>2  2</edge2elem>
+      <edge2elem>1  2</edge2elem>
+      <edge2elem>4  1</edge2elem>
+      <edge2elem>4  4</edge2elem>
+      <edge2elem>2  3</edge2elem>
+      <edge2elem>3  3</edge2elem>
+      <edge2elem>5  4</edge2elem>
+      <edge2elem>3  6</edge2elem>
+      <edge2elem>5  6</edge2elem>
+      <edge2elem>5  5</edge2elem>
+      <edge2elem>6  6</edge2elem>
+      <edge2elem>1  14</edge2elem>
+      <edge2elem>3  16</edge2elem>
+      <edge2elem>17  18</edge2elem>
+      <edge2elem>14   4</edge2elem>
+      <edge2elem>1  2</edge2elem>
+      <edge2elem>3  4</edge2elem>
+      <edge2elem>17  17</edge2elem>
+      <edge2elem>19  20</edge2elem>
+      <edge2elem>5  22</edge2elem>
+      <edge2elem>14  14</edge2elem>
+      <edge2elem>1  6</edge2elem>
+      <edge2elem>19  19</edge2elem>
+      <edge2elem>5  6</edge2elem>
+      <edge2elem>23  24</edge2elem>
+      <edge2elem>7  26</edge2elem>
+      <edge2elem>16  16</edge2elem>
+      <edge2elem>3  8</edge2elem>
+      <edge2elem>23  23</edge2elem>
+      <edge2elem>7  8</edge2elem>
+      <edge2elem>27  28</edge2elem>
+      <edge2elem>29  30</edge2elem>
+      <edge2elem>31  32</edge2elem>
+      <edge2elem>18  18</edge2elem>
+      <edge2elem>20  20</edge2elem>
+      <edge2elem>24  24</edge2elem>
+      <edge2elem>17  32</edge2elem>
+      <edge2elem>27  27</edge2elem>
+      <edge2elem>29  29</edge2elem>
+      <edge2elem>31  31</edge2elem>
+      <edge2elem>9  34</edge2elem>
+      <edge2elem>22  22</edge2elem>
+      <edge2elem>28  28</edge2elem>
+      <edge2elem>5  10</edge2elem>
+      <edge2elem>9  10</edge2elem>
+      <edge2elem>11  36</edge2elem>
+      <edge2elem>26  26</edge2elem>
+      <edge2elem>30  30</edge2elem>
+      <edge2elem>7  12</edge2elem>
+      <edge2elem>11  12</edge2elem>
+      <edge2elem>32  32</edge2elem>
+      <edge2elem>34  34</edge2elem>
+      <edge2elem>36  36</edge2elem>
+      <edge2elem>9  35</edge2elem>
+      <edge2elem>2  2</edge2elem>
+      <edge2elem>4  4</edge2elem>
+      <edge2elem>6  6</edge2elem>
+      <edge2elem>8  8</edge2elem>
+      <edge2elem>10  10</edge2elem>
+      <edge2elem>12  12</edge2elem>
+   </edge2elems>
+</data>

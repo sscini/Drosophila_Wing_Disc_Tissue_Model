@@ -2,7 +2,7 @@
 #define LINEARSPRINGS_H_ 
 
 #include "SystemStructures.h"
-
+#include <stdio.h>
 // Declare the function ComputeLinearSprings, which is responsible for calculating linear spring forces. It takes references to various data structures related to the simulation as arguments.
 void ComputeLinearSprings(
   
@@ -141,11 +141,11 @@ struct LinearSpringFunctor {
                   if (what_spring_constant < spring_constant_weak){what_spring_constant = spring_constant_weak;}
               }
               else{
-                  if (edges_in_upperhem[counter] == 1 || edges_in_upperhem[counter] == -1){
+                  if (edges_in_upperhem[counter] == 1){
                       what_spring_constant = spring_constant_weak; // currently we're making the top and bottom layers weak while keeping the spring constant for the vertical springs very high. 
                   //length_zero = length_zero_growth;
                   }
-                  else if (edges_in_upperhem[counter] == 0){
+                  else if (edges_in_upperhem[counter] == -1){
                       what_spring_constant = spring_constant_vertical;//(spring_constant_weak + spring_constant)/2.0;
                   }
                   else{
@@ -173,8 +173,13 @@ struct LinearSpringFunctor {
               double magnitude = -(what_spring_constant) * (length_current - length_zero);
       
               idKey[place] = edgeL;
-  
-          
+              printf("what_spring_constant = %f\n", what_spring_constant);
+              printf("magnitude = %f\n", magnitude);
+              printf("Linear Springs length_current = %f\n", length_current);
+              printf("xLoc_LR = %f\n", xLoc_LR);
+              printf("yLoc_LR = %f\n", yLoc_LR);
+              printf("zLoc_LR = %f\n", zLoc_LR);
+              
               //issue here writing to vectors with force????
               forceXAddr[place] = magnitude * (xLoc_LR/length_current);
               forceYAddr[place] = magnitude * (yLoc_LR/length_current);

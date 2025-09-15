@@ -15,8 +15,8 @@ setenv LD_LIBRARY_PATH "${LD_LIBRARY_PATH}:/afs/crc.nd.edu/x86_64_linux/m/matlab
 set data = ( DataStructures/Data_Structure.xml )
 
 module purge
-module load gcc/7.1.0
-module load cuda/9.2
+module load gcc/12.2.0
+module load cuda/12.8
 
 
 echo -n "It is currently: ";date

@@ -1,3 +1,184 @@
+/*
+
+Well you didnt save our last rant did you. Good on you!!
+Sarcasm aside..HOW COULD YOU. WE WORKED HARD ON THAT. DAMMIT NAV.
+
+SO here is where I am rn. adding a verlet velocity advancer for energy conservation to my current node advance file. Here is what I have done.
+
+I have added a new vector nodeVelX/Y/Z in system.h and systemstructures.h. coordInfoVecs and hostSetInfoVecs respectively. I have then gone into system.cu and initialized it. Idk if there are other places that this parameter needs to be updated. I'll change it as it goes along. Might be happening in utilities.cpp. Lez see
+
+Okay so here's where we're at. We have the double layered spring model being fed into the tensor and computed but for some reason all the springs are being pulled into each other.
+Need to figure out why this is happening right after relaxation. Should not be the case but it is.
+
+Next thing to do is to separate the vertical spring constants from the rest of the mesh computation. Maybe treat them like the septin ring ones? Let's start work on that.
+
+Things to keep in mind:
+
+Linear Springs - the initial length is the edge_initial_length array and the final length it has to go to is the edge_rest_length. So when we're starting out we dont want any linear energy acting
+the springs. Once the strain tensor is applied, we will then have the lengths be perturbed. So modify that function accordingly.
+
+In the Science Advances paper they have used a CSV to input the strain parameters. Maybe we need to be doing the same thing.
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////// NEW WORK FLOW ////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+1. Start by putting vertical spring lengths into the septin ring nodes.
+
+
+2. MAIN ALGORITH FLOW:
+  a. edge_initial_lengths -> initial lengths of the edges. First start by calculating the final FINAL resting lengths through application of the strain tensor OR
+     Start by setting a total time for simulation. Use that to get the total number of steps. Then use that to figure out final rest length from the strain tensor. Store this in a new vector called
+     edge_final_length.
+     NB - TOP AND BOTTOM LAYERS HAVE THEIR REST LENGTHS UPDATED BY THE SAME AMOUNT IN THE ACTIVE SHAPE PROGRAMMING PAPER.
+
+     Now when the strain tensor runs it'll be broken down into steps and incrementally run so it'll be - edge_rest_length(T) = edge_initial_length + (edge_final_length - edge_initial_length) *T/Tf
+     Here Tf is the quasi static number of steps the simulation takes place in.
+
+  b. Here's how the energy is going to change: linear_spring_energy = 1/2 sum_over_all_edges ( k * (edge_current_length - edge_rest_length)^2. Overdamped dynamics is where edge_current_length comes
+     into play.
+
+  c. Energy must now be minimized. Look at notes for equations.
+
+     Apply first strain increment - solve forces - quasi statically search for the minimum energy using tau - advance node positions - repeat.
+
+  Tf - edge_final_length
+  T - edge_rest_length
+  tau - edge_current_length
+  T_0 - edge_initial length
+
+  okay most of the above things are done.
+
+  Need to:
+  1. Look into LinearSprings files
+  2. Recenter mesh initially so that it does not have the initial mesh in a separate position.
+  3. Modify the strain tensor so its only working on one layer at a time.
+  4. Figure out why the vertical springs have so much tension and collapse.
+
+
+
+  Okay so here's where we're at right now:
+
+  I'm trying to figure out why my vertical springs are not being calculated properly. I think I'll need to verify the data structure and see which edges are connected to which ones then come up with an algorithm that would find those nodes and calculate the distance between them. This would be added in systembuilder.
+
+  Oh and also currently all my constants are being set as the default ones and not taken from the data structure so that's also a bummer.
+
+*/
+/*
+
+Well you didnt save our last rant did you. Good on you!!
+Sarcasm aside..HOW COULD YOU. WE WORKED HARD ON THAT. DAMMIT NAV.
+
+SO here is where I am rn. adding a verlet velocity advancer for energy conservation to my current node advance file. Here is what I have done.
+
+I have added a new vector nodeVelX/Y/Z in system.h and systemstructures.h. coordInfoVecs and hostSetInfoVecs respectively. I have then gone into system.cu and initialized it. Idk if there are other places that this parameter needs to be updated. I'll change it as it goes along. Might be happening in utilities.cpp. Lez see
+
+Okay so here's where we're at. We have the double layered spring model being fed into the tensor and computed but for some reason all the springs are being pulled into each other.
+Need to figure out why this is happening right after relaxation. Should not be the case but it is.
+
+Next thing to do is to separate the vertical spring constants from the rest of the mesh computation. Maybe treat them like the septin ring ones? Let's start work on that.
+
+Things to keep in mind:
+
+Linear Springs - the initial length is the edge_initial_length array and the final length it has to go to is the edge_rest_length. So when we're starting out we dont want any linear energy acting
+the springs. Once the strain tensor is applied, we will then have the lengths be perturbed. So modify that function accordingly.
+
+In the Science Advances paper they have used a CSV to input the strain parameters. Maybe we need to be doing the same thing.
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////// NEW WORK FLOW ////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+1. Start by putting vertical spring lengths into the septin ring nodes.
+
+
+2. MAIN ALGORITH FLOW:
+a. edge_initial_lengths -> initial lengths of the edges. First start by calculating the final FINAL resting lengths through application of the strain tensor OR
+   Start by setting a total time for simulation. Use that to get the total number of steps. Then use that to figure out final rest length from the strain tensor. Store this in a new vector called
+   edge_final_length.
+   NB - TOP AND BOTTOM LAYERS HAVE THEIR REST LENGTHS UPDATED BY THE SAME AMOUNT IN THE ACTIVE SHAPE PROGRAMMING PAPER.
+
+   Now when the strain tensor runs it'll be broken down into steps and incrementally run so it'll be - edge_rest_length(T) = edge_initial_length + (edge_final_length - edge_initial_length) *T/Tf
+   Here Tf is the quasi static number of steps the simulation takes place in.
+
+b. Here's how the energy is going to change: linear_spring_energy = 1/2 sum_over_all_edges ( k * (edge_current_length - edge_rest_length)^2. Overdamped dynamics is where edge_current_length comes
+   into play.
+
+c. Energy must now be minimized. Look at notes for equations.
+
+   Apply first strain increment - solve forces - quasi statically search for the minimum energy using tau - advance node positions - repeat.
+
+Tf - edge_final_length
+T - edge_rest_length
+tau - edge_current_length
+T_0 - edge_initial length
+
+okay most of the above things are done.
+
+Need to:
+1. Look into LinearSprings files
+2. Recenter mesh initially so that it does not have the initial mesh in a separate position.
+3. Modify the strain tensor so its only working on one layer at a time.
+4. Figure out why the vertical springs have so much tension and collapse.
+
+
+
+Okay so here's where we're at right now:
+
+I'm trying to figure out why my vertical springs are not being calculated properly. I think I'll need to verify the data structure and see which edges are connected to which ones then come up with an algorithm that would find those nodes and calculate the distance between them. This would be added in systembuilder.
+
+Oh and also currently all my constants are being set as the default ones and not taken from the data structure so that's also a bummer.
+
+06/06/25:
+
+Okay so quals are 6 days away. less than that actually. You can do it! Good luck
+
+In the meantime let's look at the plan beyond quals. 
+
+1. Make sure strain tensor is correct. I have my doubts about it right now. 
+2. Gradient descent takes fricking AGES. Figure out why this is. It really should not be. 
+3. Remove the scale parameter settings for hill const diff for wall weakening from your code. 
+4. This is the last one. And a big one. START MAKING YOUR 3D SCE model. We'll figure out couplings later. But for now start reading the papers on it.
+
+
+
+06/23/25 
+
+Okay so the month of June is pretty much over now. Passed the quals and now I'm just drifting. Where do I go from here. I guess a lot of people feel this way after a taxing run where they 
+do a long stretch and burn themselves out. I know I'm not a significant part of this lab and so I will keep working quietly on the things that are assigned me. I wont let it break my spirit tho. 
+
+
+From tomorrow I will start working on transfering this code to python and seeing if we can have a real time updating screen for the visuals. We'll also do parallelization in python for it. Will be 
+another really big task but I have high hopes for the summer. So lez see. 
+
+Email Khoi. Ask him for help with this. 
+
+
+/////////////////////////////////////////////////////
+
+Alright we're back again. This time for real 
+
+07/06/2025
+
+Let's see now. 
+
+We've implemented strain tensor but we do not know if it is correct. So go over that once more. 
+
+BUT FIRST
+ 
+Start by separating DV boundary. 
+ Implement Strain tensor on DV boundary. 
+ Then check strain tensor. 
+ Alongside, make sure to set up the local version of the running code 
+ Look up how to model thick tissues with mechanical properties. 
+ 
+ 
+ Also know that you're not getting any simulation results right now which means you've potentially deleted a file that could have been useful or a thing in System.cu that could have been useful. So let's do some debugging. 
+
+*/
+
 #include <stdio.h>
 #include "System.h"
 #include "SystemStructures.h"
@@ -39,7 +220,7 @@ int count_bigger(const std::vector<int> &elems)
 // Constructor for the System class.
 System::System() {};
 
-// Print net force on nodes along a radial line (? Â˜ 0) from disc center to boundary
+// Print net force on nodes along a radial line (? ˜ 0) from disc center to boundary
 void System::PrintForce() {
     // Copy device forces to host
     thrust::host_vector<double> h_fx = coordInfoVecs.nodeForceX;
@@ -142,9 +323,10 @@ void System::solveSystem()
     
     generalParams.dt = 0.01;
     
+    
     std::cout<<" Simulating wL3 - 0hAPF "<<std::endl;
     std::cout<<"lambda_iso_center_outDV = -0.12406004 - "<<generalParams.lambda_iso_center_outDV<<std::endl;
-
+    Solve_Forces();
     uint mem_prealloc = 4; // Make sure that this number is the same as set in System::initializeSystem found near the bottom of this script. - Kevin. Q. why is this the case? Why does it need to be the same? - Nav.
 
     // Initial values for determining the region of material insertion.
@@ -609,10 +791,10 @@ void System::solveSystem()
     // The coefficient used for non-neighboring membrane node volume exclusion.
     // rep1 is the "D" and rep2 is the "alpha" in the standard form of Morse potential.
 
-    generalParams.volume_spring_constant = 0.2; //(1.0/3.0)*areaTriangleInfoVecs.initial_area*1.0;
+    generalParams.volume_spring_constant = 5.0; //(1.0/3.0)*areaTriangleInfoVecs.initial_area*1.0;
     std::cout << "spring constant for surface normal expansion (pressure within the cell) = " << generalParams.volume_spring_constant << std::endl;
 
-    generalParams.line_tension_constant = 0.0; // 250.0; // Value that generated flat sheet is 0.0. 8/14/24
+    generalParams.line_tension_constant = 5.0; // 250.0; // Value that generated flat sheet is 0.0. 8/14/24
     std::cout << "spring constant for the septin ring (before budding) = " << generalParams.line_tension_constant << std::endl;
 
     // Equilibrium length of each segment of the septin ring.
@@ -626,8 +808,8 @@ void System::solveSystem()
     generalParams.maxSpringScaler_linear = 1.0;
     generalParams.maxSpringScaler_area = 1.0;
     generalParams.maxSpringScaler_bend = 1.0;
-    double scale_linear = linearSpringInfoVecs.spring_constant * 0.25; // 0.25;//25.0/2.5;//75.0/15.0; flat sheet generated when multiplied by 1; 8/15/24; Changing it to 0.25 makes it wrinkle up from before. Same with all three below 8/15/24
-    double scale_bend = bendingTriangleInfoVecs.spring_constant * 1;   // 0.05;//10.0/1.0;//75.0/7.5;  flat sheet generated when multiplied by 1; 8/15/24;
+    double scale_linear = linearSpringInfoVecs.spring_constant * 1.0; // 0.25;//25.0/2.5;//75.0/15.0; flat sheet generated when multiplied by 1; 8/15/24; Changing it to 0.25 makes it wrinkle up from before. Same with all three below 8/15/24
+    double scale_bend = bendingTriangleInfoVecs.spring_constant * 1.0;   // 0.05;//10.0/1.0;//75.0/7.5;  flat sheet generated when multiplied by 1; 8/15/24;
     double scale_area = areaTriangleInfoVecs.spring_constant * 0.25;   // 0.25;//50.0/5.0;//75.0/15.0;  flat sheet generated when multiplied by 1; 8/15/24;
     // nav changed all of the above to their original values to see how it affects budding. 8/26/24
     std::cout << "weakened region linear (before budding) = " << scale_linear << std::endl;
@@ -1037,7 +1219,7 @@ void System::solveSystem()
     // int edges_in_upperhem_COUNT = 0;
     //
     // for (int i = 0; i < coordInfoVecs.num_edges; i++){
-    //// NEW: Compute the edgeÂ’s midpoint z coordinate
+    //// NEW: Compute the edge’s midpoint z coordinate
     // double avg_z = (coordInfoVecs.nodeLocZ[coordInfoVecs.edges2Nodes_1[i]] +
     //                 coordInfoVecs.nodeLocZ[coordInfoVecs.edges2Nodes_2[i]]) / 2.0;
     // if (avg_z <= 0.5) {
@@ -2297,6 +2479,1244 @@ void System::initializeSystem(HostSetInfoVecs & hostSetInfoVecs)
     auxVecs.id_value_expanded.resize(27 * (generalParams.maxNodeCount));
 };
 
+//};
+//void System::relaxUntilConverged(int k){
+//    
+//    generalParams.dx = 0.0;
+//    k = 0;
+//    while (generalParams.dx>generalParams.tol){        
+//        Solve_Forces();
+//        AdvancePositions(coordInfoVecs, generalParams, domainParams);
+//        
+//        k++;
+//    }
+//    //return k;
+////    
+//};//
+
+//        /* unary op ?F?2 ------------------------------------------------------------- */
+//        struct ForceNorm
+//        {
+//            __host__ __device__ double operator()(const thrust::tuple<double, double, double> &t) const
+//            {
+//                double fx = thrust::get<0>(t);
+//                double fy = thrust::get<1>(t);
+//                double fz = thrust::get<2>(t);
+//                return sqrt(fx * fx + fy * fy + fz * fz);
+//            }
+//        };
+//        /* binary op = max ----------------------------------------------------------- */
+//        struct MaxOp
+//        {
+//            __host__ __device__ double operator()(double a, double b) const { return a > b ? a : b; }
+//        };
+//
+//        /* ========================================================================== *
+//         *  relaxUntilConverged – returns true on success                             *
+//         * ========================================================================== */
+//        bool System::relaxUntilConverged(double tol /*=1e-6*/, int maxIter /*=3000*/)
+//        {
+//            for (int iter = 0; iter < maxIter; ++iter)
+//            {
+//                /* --------- assemble forces on GPU ---------------------------------- */
+//                Solve_Forces(); // <— every physics module writes into nodeForceX/Y/Z
+//
+//                /* --------- compute max |F| using transform_reduce ------------------ */
+//                auto first = thrust::make_zip_iterator(
+//                    thrust::make_tuple(coordInfoVecs.nodeForceX.begin(),
+//                                       coordInfoVecs.nodeForceY.begin(),
+//                                       coordInfoVecs.nodeForceZ.begin()));
+//                auto last = thrust::make_zip_iterator(
+//                    thrust::make_tuple(coordInfoVecs.nodeForceX.end(),
+//                                       coordInfoVecs.nodeForceY.end(),
+//                                       coordInfoVecs.nodeForceZ.end()));
+//
+//                double maxF = thrust::transform_reduce(/* O(N) GPU reduction   */
+//                                                       first, last,
+//                                                       ForceNorm(), /* unary op  |F|        */
+//                                                       0.0,         /* init value           */
+//                                                       MaxOp());    /* binary op  max       */
+//                /* ------------------------------------------------------------------- */
+//                AdvancePositions(coordInfoVecs, generalParams, domainParams);
+//
+//                if (maxF < tol)
+//                { // lambda converged
+//                    return true;
+//                }
+//            }
+//            return false; // lambda hit iteration limit
+//        };
+
+// turn off line 1821 - 1831 closes towards the very end.
 
 
 
+
+
+
+
+//#include <stdio.h>
+//#include "System.h"
+//#include "SystemStructures.h"
+//#include "AreaTriangles.h"
+//#include "LinearSprings.h"
+//#include "NodeAdvance.h"
+//#include "Storage.h"
+//#include "Utilities.h"
+//#include "SystemBuilder.h"
+//#include <vector>
+//#include "VolumeComp.h"
+//#include "VolumeSprings.h"
+//#include <bits/stdc++.h>
+//#include "LineTensionSprings.h"
+//#include <math.h>
+//#include <list>
+//#include "LinearSpringsEnergy.h"
+//#include "StrainTensor.h"
+//#include <thrust/iterator/zip_iterator.h>
+//#include <thrust/functional.h>
+//#include <thrust/transform_reduce.h>
+//#include <thrust/tuple.h>
+//#include "gradientRelax.h"
+//
+//// somehow the gradient is not being set in my version - Kevin
+//
+//// Helper function to count elements greater than or equal to zero in a vector.
+//int count_bigger(const std::vector<int> &elems)
+//{
+//    return std::count_if(elems.begin(), elems.end(), [](int c)
+//                         { return c >= 0; });
+//}
+//
+//// Constructor for the System class.
+//System::System() {};
+//
+//// Print net force on nodes along a radial line (? ˜ 0) from disc center to boundary
+//void System::PrintForce() {
+//    // Copy device forces to host
+//    thrust::host_vector<double> h_fx = coordInfoVecs.nodeForceX;
+//    thrust::host_vector<double> h_fy = coordInfoVecs.nodeForceY;
+//    thrust::host_vector<double> h_fz = coordInfoVecs.nodeForceZ;
+//    thrust::host_vector<double> h_x  = coordInfoVecs.nodeLocX;
+//    thrust::host_vector<double> h_y  = coordInfoVecs.nodeLocY;
+//
+//    const double desiredTheta = 0.0;    // along +x axis
+//    const double eps = 0.01;            // angular tolerance (rad)
+//    std::vector<std::pair<double,int>> picks;
+//    int N = static_cast<int>(h_x.size());
+//    for (int i = 0; i < N; ++i) {
+//        double r = std::hypot(h_x[i], h_y[i]);
+//        double theta = std::atan2(h_y[i], h_x[i]);
+//        double diff = std::fabs(theta - desiredTheta);
+//        if (diff > M_PI) diff = 2*M_PI - diff;
+//        if (diff < eps) picks.emplace_back(r, i);
+//    }
+//    std::sort(picks.begin(), picks.end());
+//
+//    std::printf("   r      Fx       Fy       Fz\n");
+//    for (auto &pr : picks) {
+//        int idx = pr.second;
+//        std::printf("%6.3f  %7.3e  %7.3e  %7.3e\n",
+//                    pr.first,
+//                    h_fx[idx], h_fy[idx], h_fz[idx]);
+//    }
+//}
+//
+//// Function to solve the forces in the system.
+//void System::Solve_Forces()
+//{
+//
+//    // Reset all forces to zero.
+//    thrust::fill(coordInfoVecs.nodeForceX.begin(), coordInfoVecs.nodeForceX.end(), 0.0);
+//    thrust::fill(coordInfoVecs.nodeForceY.begin(), coordInfoVecs.nodeForceY.end(), 0.0);
+//    thrust::fill(coordInfoVecs.nodeForceZ.begin(), coordInfoVecs.nodeForceZ.end(), 0.0);
+//
+//    // Compute forces and energy due to linear springs.
+//    ComputeLinearSprings(
+//        generalParams,
+//        coordInfoVecs,
+//        linearSpringInfoVecs,
+//        ljInfoVecs);
+//
+//    // Compute forces and energy due to area springs. Nav commented out to test Active shape programming mesh type 02/27/2025  . Put back in 03/23/25
+////      	ComputeAreaTriangleSprings(
+////      		generalParams,
+////      		coordInfoVecs,
+////      		areaTriangleInfoVecs);
+//
+//    // Compute forces and energy due to turgor pressure springs. (nav - commenting these out for now for flat surface 5/29/24) nav reintroducing the turgor pressure because the eversion wing does have turgor pressure. 8/17/2024
+//    // ComputeTurgorSprings(
+//    // generalParams,
+//    // coordInfoVecs,
+//    // areaTriangleInfoVecs
+//    //);
+//
+//    // Compute forces and energy due to bending springs. Turn this off 10/10/24
+////      	ComputeCosTriangleSprings(
+////      		generalParams,
+////      		coordInfoVecs,
+////      		bendingTriangleInfoVecs);
+//
+//    // Compute forces and energy due to membrane repulsion springs.// Nav commented out to test Active shape programming mesh type 02/27/2025. PUt back in 03/23/25
+////      	ComputeMemRepulsionSprings_local(
+////      		coordInfoVecs,
+////      		linearSpringInfoVecs,
+////      		capsidInfoVecs,
+////      		generalParams,
+////      		auxVecs);
+//
+//    // Compute forces and energy due to volume springs. //(nav - commenting these out for now for flat surface 5/29/24) Nav had uncommented but she's bringing the comment back because testing out Active shape mesh 02/27/25
+////      	ComputeVolume(
+////      		generalParams,
+////      		coordInfoVecs,
+////      		linearSpringInfoVecs,
+////      		ljInfoVecs);
+//    
+//    // Now print forces along the radial line
+//   // PrintForce();
+//};
+//
+//// Function to solve the entire system.
+//void System::solveSystem()
+//{
+//
+//    // Nav - I dont want to remove these variables. These may come in handy.
+//    // coordInfoVecs.k_0 = 20.0;
+//    // coordInfoVecs.k_1 = 25.0;
+//    // coordInfoVecs.k_2 = 5.0;
+//    // coordInfoVecs.k_3 = 5.0;
+//    // coordInfoVecs.k_4 = 1.0;
+//    // coordInfoVecs.k_ss = 12;//10.75;
+//    // coordInfoVecs.beta = 1.0/1.0;///1.45;
+//    // coordInfoVecs.gamma = 1.0;
+//    // coordInfoVecs.q1 = 10.0;
+//    // coordInfoVecs.h = 10.0;
+//    
+//    generalParams.dt = 0.01;
+//    
+//    std::cout<<" Simulating wL3 - 0hAPF "<<std::endl;
+//    std::cout<<"lambda_iso_center_outDV = -0.12406004 - "<<generalParams.lambda_iso_center_outDV<<std::endl;
+//
+//    uint mem_prealloc = 4; // Make sure that this number is the same as set in System::initializeSystem found near the bottom of this script. - Kevin. Q. why is this the case? Why does it need to be the same? - Nav.
+//   
+//   
+//    // Create a shared pointer for Utilities.
+//    auto utilities_ptr = std::make_shared<Utilities>(coordInfoVecs, generalParams);
+//
+//    // Create a shared pointer for SystemBuilder.
+//    auto build_ptr = weak_bld_ptr.lock();
+//    std::cout << "Declaration of rbc and n_rbc complete." << std::endl;
+//    std::cout << "Utilities_ptr declaration complete." << std::endl;
+//
+//
+//   
+//    // Set the node mass for the simulation.
+//    generalParams.nodeMass = 1.0;
+//
+//
+//    // Set kT_growth value for growth events.
+//    generalParams.kT_growth = 1.0;
+//
+//    // Set the SCALE_TYPE for weakening during growth events. (0 to 4)
+//    // 0:= Gaussian-like weakening
+//    // 1:= a1*(pow(x,b)) + a2*(1-pow(x,b)) type weakening
+//    // 2:= pure Gaussian weakening
+//    // 3:= isotropic
+//    // 4:= hill equation
+//    // Note that (3) is used in combination with sigma = INT_MAX;
+//    generalParams.SCALE_TYPE = 3; // Original scale type was 3. Nav changed it to 0 for flat code. 6/2/24. \\ 0 did not work so nav changed it back to 3 8/18/24
+//    std::cout << "SCALE TYPE = " << generalParams.SCALE_TYPE << std::endl;
+//    std::cout << "0:= sigmoidal Gaussian-like weakening, 1:= a1*(pow(x,b)) + a2*(1-pow(x,b)) type weakening, 2:= pure Gaussian weakening, 3:= isotropic, 4:= hill equation" << std::endl;
+//
+//    // Check and set additional parameters based on SCALE_TYPE.
+//    if (generalParams.SCALE_TYPE == 1)
+//    {
+//        generalParams.scaling_pow = 2.0;
+//        std::cout << "scaling_pow (this is for SCALE_TYPE = 1 case) = " << generalParams.scaling_pow << std::endl;
+//    }
+//    if (generalParams.SCALE_TYPE == 0)
+//    {
+//        generalParams.gausssigma = 0.1;
+//        std::cout << "gausssigma (this is for the SCALE_TYPE = 0 case) = " << generalParams.gausssigma << std::endl;
+//    }
+//
+//    // Declare variables for Hill function_dependent wall stiffness.
+//    double dtb_scaler, targetHillEqnPow;
+//    if (generalParams.SCALE_TYPE == 4)
+//    {
+//        generalParams.ratio_for_HillFunctionStiffness = 4.0;
+//        std::cout << "Hill function dependent wall stiffness triggers when the the distance between tip of the bud and the septin ring is " << generalParams.ratio_for_HillFunctionStiffness << std::endl;
+//        std::cout << "times larger than the equilibrium length Rmin" << std::endl;
+//        dtb_scaler = 1.0;
+//        targetHillEqnPow = 16.0;
+//        std::cout << "The EC50 position is scaled by " << dtb_scaler << " on the distance from tip to boundary, hence the EC50 occurs on dtb*" << dtb_scaler << "/dtb_max" << std::endl;
+//        std::cout << "Target hill equation power = " << targetHillEqnPow << std::endl;
+//    }
+//
+//
+//    if (generalParams.SCALE_TYPE == 0)
+//    {
+//       double sigma = 0.0;            // INT_MAX; //if this is set to be INT_MAX then we assume isotropic weakening.
+//       double sigma_true = sqrt(0.5); // This is the variance used to calculate the scaling of the wall weakening.
+//        std::cout << "initial sigma (for gradient distribution variance), based on initial distribution of Cdc42, if using true gaussian weakening = " << sigma << std::endl;
+//        std::cout << "If sigma = INT_MAX, then we have isotropic weakening scenario" << std::endl;
+//        std::cout << "true sigma (for gaussian-related distribution variance) = " << sigma_true << std::endl;
+//    }
+//
+//    //////////////////////////////////////////////////////////////////////////////////
+//    //////////////////////////////////////////////////////////////////////////////////
+//    ////////////////////////// PARAMETER SETTINGS ////////////////////////////////////
+//    //////////////////////////////////////////////////////////////////////////////////
+//    //////////////////////////////////////////////////////////////////////////////////
+//
+//    // Part 4
+//
+//    // Setting various simulation parameters and initializing variables.
+//
+//    // Declare and initialize variables for growth-related calculations.
+//    double initial_kT;
+//    initial_kT = generalParams.kT; // Stores the initial kT value for the acceptance of changes after looping through every edge within proximity.
+//
+//    // Initialize min_energy.
+//    double min_energy;
+//
+//    /////////////////////////////////////////////////////////////////
+//    /////////////////////// MEMBRANE RELATED ////////////////////////
+//    /////////////////////////////////////////////////////////////////
+//
+//
+//    // Initilize the following vectors with zeros.
+//    std::vector<double> nodenormal_1(generalParams.maxNodeCount, 0.0);
+//    std::vector<double> nodenormal_2(generalParams.maxNodeCount, 0.0);
+//    std::vector<double> nodenormal_3(generalParams.maxNodeCount, 0.0);
+//
+//
+//    // Line tension threshold for the activation of line tension (currently not used)
+//    double LINE_TENSION_THRESHOLD = -10000.0;
+//    std::cout << "LINE TENSION THRESHOLD for activation of line tension = " << LINE_TENSION_THRESHOLD << std::endl;
+//
+//    // Volume threshold for the activation of weakened membrane (currently not used).
+//    double VOLUME_THRESHOLD = 0.0;
+//    std::cout << "VOLUME THRESHOLD for activation of weakened membrane = " << VOLUME_THRESHOLD << std::endl;
+//
+//    // RULES_OF_EXPAN controls how the EXPAN_THRESHOLD is applied:
+//    //  // 1:= Both trianglular areas must exceed the threshold value.
+//    //  // 2:= If one trianglular area exceeds the treshold value while the other exceeds the secondary threshold value.
+//    //  // 3:= If the combined area of the two triangles exceed 2*EXPAN_THRESHOLD.
+//    //  // 4:= If a selected edges exceed the threshold value, split the triangles associated with the edge.
+//
+//    for (int i = 0; i < generalParams.maxNodeCount; i++)
+//    {
+//        generalParams.centerX += coordInfoVecs.nodeLocX[i];
+//        generalParams.centerY += coordInfoVecs.nodeLocY[i];
+//        generalParams.centerZ += coordInfoVecs.nodeLocZ[i];
+//    }
+//
+//    generalParams.centerX = generalParams.centerX / generalParams.maxNodeCount;
+//    generalParams.centerY = generalParams.centerY / generalParams.maxNodeCount;
+//    generalParams.centerZ = generalParams.centerZ / generalParams.maxNodeCount;
+//
+//    // Initialization of newcenterX, newcenterY, newcenterZ for recentering of the mesh.
+//    double displacementX, displacementY, displacementZ;
+//    double newcenterX, newcenterY, newcenterZ;
+//
+//    std::vector<int> VectorShuffleForGrowthLoop;
+//    std::vector<int> VectorShuffleForFilamentLoop;
+//    std::vector<int> VectorShuffleForEdgeswapLoop;
+//
+//    // Find the min and max height of the membrane nodes and their indices.
+//    double min_height = coordInfoVecs.nodeLocZ[0];
+//    double max_height = -10000.0;
+//    int max_height_index = -1;
+//    for (int k = 0; k < generalParams.maxNodeCount; k++)
+//    {
+//        if (coordInfoVecs.nodeLocZ[k] >= max_height)
+//        {
+//            max_height = coordInfoVecs.nodeLocZ[k];
+//            max_height_index = k;
+//        }
+//    }
+//
+//
+//    // Equilibrium distance between membrane node for volume exclusion.
+//    //  Initialize the following which represents the equilibrium triangular area.
+//    areaTriangleInfoVecs.initial_area = 1.0; // 0.039;nav changed this to make it larger 11/7/24 //2835;//0.009808;//0.039;//0.03927344;//0.009817; 11/8/24 25 worked for small number of nodes. < Nav
+//    std::cout << "equilibrium triangular area = " << areaTriangleInfoVecs.initial_area << std::endl;
+//
+//    generalParams.volume_spring_constant = 0.2; //(1.0/3.0)*areaTriangleInfoVecs.initial_area*1.0;
+//    std::cout << "spring constant for surface normal expansion (pressure within the cell) = " << generalParams.volume_spring_constant << std::endl;
+//
+//    generalParams.line_tension_constant = 0.0; // 250.0; // Value that generated flat sheet is 0.0. 8/14/24
+//    std::cout << "spring constant for the septin ring (before budding) = " << generalParams.line_tension_constant << std::endl;
+//
+//    // Equilibrium length of each segment of the septin ring.
+//    generalParams.length_scale = 0.0; // 1.0*generalParams.Rmin;//nav changed this from 0 to the current value to test the boundary nodes. 03/06/2025 //0.85;//0.1577;//1.0*generalParams.Rmin;// 0.8333; //nav changed this to be 0.0 from 1.0. 8/5/24; Flat sheet generated when septin ring was 0.0. 8/14/24
+//
+//
+//    // Set weakened region scaling factors.
+//    generalParams.maxSpringScaler_linear = 1.0;
+//    generalParams.maxSpringScaler_area = 1.0;
+//    generalParams.maxSpringScaler_bend = 1.0;
+//    double scale_linear = linearSpringInfoVecs.spring_constant * 0.25; // 0.25;//25.0/2.5;//75.0/15.0; flat sheet generated when multiplied by 1; 8/15/24; Changing it to 0.25 makes it wrinkle up from before. Same with all three below 8/15/24
+//    double scale_bend = bendingTriangleInfoVecs.spring_constant * 1;   // 0.05;//10.0/1.0;//75.0/7.5;  flat sheet generated when multiplied by 1; 8/15/24;
+//    double scale_area = areaTriangleInfoVecs.spring_constant * 0.25;   // 0.25;//50.0/5.0;//75.0/15.0;  flat sheet generated when multiplied by 1; 8/15/24;
+//    // nav changed all of the above to their original values to see how it affects budding. 8/26/24
+//    std::cout << "weakened region linear (before budding) = " << scale_linear << std::endl;
+//    std::cout << "weakened region bend (before budding) = " << scale_bend << std::endl;
+//    std::cout << "weakened region area (before budding) = " << scale_area << std::endl;
+//
+//    // Scaling factor of the weakend mechanical properties.
+//    linearSpringInfoVecs.spring_constant_weak = scale_linear;
+//    bendingTriangleInfoVecs.spring_constant_weak = scale_bend;
+//    areaTriangleInfoVecs.spring_constant_weak = scale_area;
+//
+//    bendingTriangleInfoVecs.initial_angle_bud = bendingTriangleInfoVecs.initial_angle[1];
+//    std::cout << "equilibrium bending angle of the bud = " << bendingTriangleInfoVecs.initial_angle_bud << std::endl;
+//
+//
+//    /////////////////////////////////////////////////////////////////
+//    ////////////////// END OF MEMBRANE RELATED //////////////////////
+//    /////////////////////////////////////////////////////////////////
+//
+//
+//
+//    //////////////////////////////////////////////////////////////////
+//    /////////// IDENTIFYING REGIONS WITH DIFFERENT MECH PROP /////////
+//    //////////////////////////////////////////////////////////////////
+// /*
+//
+//                    DV BOUNDARY REGION
+//
+//    */
+//
+//    // calculate center of the apical layer of disc
+//    int max_upperhem_nodes = 0;
+//    for (int i = 0; i < generalParams.maxNodeCount; i++)
+//    {
+//
+//        if (generalParams.nodes_in_upperhem[i] == 1)
+//        {
+//            // std::cout<<"node in upperhem = " << generalParams.nodes_in_upperhem[i] <<std::endl;
+//            max_upperhem_nodes++;
+//        }
+//    }
+//
+//    std::cout << "\n total number of nodes in upperhem = " << max_upperhem_nodes << std::endl;
+//
+//    double cx_b = 0, cy_b = 0, cz_b = 0;
+//    int nLower = 0;
+//    double cx_a = 0, cy_a = 0, cz_a = 0;
+//    int nUpper = 0;
+//
+//    for (int i = 0; i < generalParams.maxNodeCount; ++i)
+//    {
+//        if (generalParams.nodes_in_upperhem[i] == 1)
+//        {
+//            cx_a += coordInfoVecs.nodeLocX[i];
+//            cy_a += coordInfoVecs.nodeLocY[i];
+//            cz_a += coordInfoVecs.nodeLocZ[i];
+//            ++nUpper;
+//        }
+//        else if (generalParams.nodes_in_upperhem[i] == -1)
+//        {
+//            cx_b += coordInfoVecs.nodeLocX[i];
+//            cy_b += coordInfoVecs.nodeLocY[i];
+//            cz_b += coordInfoVecs.nodeLocZ[i];
+//            ++nLower;
+//        }
+//    }
+//    cx_a /= nUpper;
+//    cy_a /= nUpper;
+//    cz_a /= nUpper; // Apical center
+//    cx_b /= nLower;
+//    cy_b /= nLower;
+//    cz_b /= nLower; // Basal center
+//
+//    // Boundary node along the x-direction -- this is arbitrary. You can choose any axis to go along.
+//
+//    double R = 0.0, DR = 0.0;
+//
+//    for (int i = 0; i < generalParams.maxNodeCount; i++)
+//    {
+//        if (generalParams.nodes_in_upperhem[i] != 1)
+//            continue;
+//        double dx = coordInfoVecs.nodeLocX[i] - cx_a;
+//        double dy = sqrt((coordInfoVecs.nodeLocY[i] - cy_a) * (coordInfoVecs.nodeLocY[i] - cy_a));
+//        if (dy < 1e-3 && dx > R)
+//            R = dx;
+//        DR = dy;
+//    }
+//
+//    // for convenience
+//
+//    generalParams.centerX = cx_a;
+//    generalParams.centerY = cy_a;
+//    generalParams.centerZ = cz_a;
+//
+//    std::cout << "boundary node in the x direction (apical layer) =  (" << R << ", " << DR << ") \n"
+//              << std::endl;
+//
+////
+//
+//    // Identifying regions with different mechanical properties and finding the coundary nodes and edges of the upper hemisphere.
+//    generalParams.boundaries_in_upperhem.resize(coordInfoVecs.num_edges);
+//
+//    std::cout << "boundaries in upperhem = " << generalParams.boundaries_in_upperhem.size() << std::endl;
+//
+//    std::vector<int> boundary_edge_list;
+//    std::vector<int> boundary_node_list;
+//
+//    std::cout << "edges2Triangles_1 = " << coordInfoVecs.edges2Triangles_1.size() << std::endl;
+//    std::cout << "edges2Triangles_2 = " << coordInfoVecs.edges2Triangles_2.size() << std::endl;
+//
+//    std::cout << "generalParams.nodes in upperhem size = " << generalParams.nodes_in_upperhem.size() << std::endl;
+//
+//    for (int i = 0; i < coordInfoVecs.num_edges; i++)
+//    {
+//        int T1 = static_cast<int>(coordInfoVecs.edges2Triangles_1[i]);
+//        int T2 = static_cast<int>(coordInfoVecs.edges2Triangles_2[i]);
+//
+//        // std::cout<<"it got till here - nav "<< std::endl;// it got till here.
+//
+//        // Optionally check if the triangle indices are valid.
+//        if (T1 < 0 || T2 < 0 || T1 >= (INT_MAX - 1000) || T2 >= (INT_MAX - 1000))
+//        {
+//            continue;
+//        }
+//
+//        if (T1 == T2 && generalParams.edges_in_upperhem[i] == -1)
+//        {
+//            generalParams.boundaries_in_lowerhem[i] = 1;
+//            boundary_edge_list.push_back(i); // This is to store the total number of boundary edges.
+//            int bdry_node1 = static_cast<int>(coordInfoVecs.edges2Nodes_1[i]);
+//            int bdry_node2 = static_cast<int>(coordInfoVecs.edges2Nodes_2[i]);
+//            boundary_node_list.push_back(bdry_node1);
+//            boundary_node_list.push_back(bdry_node2);
+//
+//            // mark these nodes as boundary or (fixed).
+//            generalParams.nodes_in_upperhem[bdry_node1] = -1;
+//            generalParams.nodes_in_upperhem[bdry_node2] = -1;
+//            coordInfoVecs.isNodeFixed[bdry_node1] = false;
+//            coordInfoVecs.isNodeFixed[bdry_node2] = false;
+//            
+//        }
+//        // This is for apical boundary nodes.
+//        if (T1 == T2 && generalParams.edges_in_upperhem[i] == 1)
+//        { // nav added the second conditional && generalParams.nodes_in_upperhem[i]==1 so that the new apical model would work.
+//            generalParams.boundaries_in_upperhem[i] = 1;
+//            boundary_edge_list.push_back(i);
+//
+//            // std::cout<<"it got till here - nav 3 "<< std::endl;
+//            int bdry_node1 = static_cast<int>(coordInfoVecs.edges2Nodes_1[i]);
+//            int bdry_node2 = static_cast<int>(coordInfoVecs.edges2Nodes_2[i]);
+//            boundary_node_list.push_back(bdry_node1);
+//            boundary_node_list.push_back(bdry_node2);
+//
+//            // Optionally mark these nodes as boundary (or fixed).
+//            generalParams.nodes_in_upperhem[bdry_node1] = 1; // nav changed this from 0 to 10.
+//            generalParams.nodes_in_upperhem[bdry_node2] = 1; // nav changed this from 0 to 10.
+//            coordInfoVecs.isNodeFixed[bdry_node1] = false;
+//            coordInfoVecs.isNodeFixed[bdry_node2] = false;
+//
+//            // std::cout<<"it got till here - nav 4 "<< std::endl;
+//        }
+//        else
+//        {
+//            generalParams.boundaries_in_upperhem[i] = -1;
+//        }
+//    }
+//
+//    std::cout << "size of boundary_edge_list = " << boundary_edge_list.size() << std::endl;
+//    std::cout << "size of boundary_node_list (double-counted) = " << boundary_node_list.size() << std::endl;
+//
+//    // Count the true number of edges in the upper hemisphere.
+//    int true_num_edges_in_upperhem = 0;
+//    int edges_in_upperhem_COUNT = 0;
+//    for (int i = 0; i < coordInfoVecs.num_edges; i++)
+//    {
+//        if (generalParams.edges_in_upperhem_list[i] != INT_MAX && generalParams.edges_in_upperhem_list[i] >= 0)
+//        {
+//            true_num_edges_in_upperhem += 1;
+//            edges_in_upperhem_COUNT += 1;
+//        }
+//    }
+//
+//    for (int i = 0; i < coordInfoVecs.num_triangles; i++)
+//    {
+//        if (coordInfoVecs.triangles2Nodes_1[i] >= (INT_MAX - 1000) || coordInfoVecs.triangles2Nodes_1[i] < 0)
+//        {
+//            generalParams.triangles_in_upperhem[i] = -1;
+//            continue;
+//        }
+//        else if (coordInfoVecs.triangles2Nodes_2[i] >= (INT_MAX - 1000) || coordInfoVecs.triangles2Nodes_2[i] < 0)
+//        {
+//            generalParams.triangles_in_upperhem[i] = -1;
+//            continue;
+//        }
+//        else if (coordInfoVecs.triangles2Nodes_3[i] >= (INT_MAX - 1000) || coordInfoVecs.triangles2Nodes_3[i] < 0)
+//        {
+//            generalParams.triangles_in_upperhem[i] = -1;
+//            continue;
+//        }
+//
+//        int aaa = generalParams.nodes_in_upperhem[coordInfoVecs.triangles2Nodes_1[i]];
+//        int bbb = generalParams.nodes_in_upperhem[coordInfoVecs.triangles2Nodes_2[i]];
+//        int ccc = generalParams.nodes_in_upperhem[coordInfoVecs.triangles2Nodes_3[i]];
+//
+//        if ((aaa + bbb + ccc) == 3)
+//        {
+//            generalParams.triangles_in_upperhem[i] = 1;
+//        }
+//        else
+//        {
+//            generalParams.triangles_in_upperhem[i] = -1;
+//        }
+//    }
+//
+//
+//
+//    std::cout << "INITIAL EDGES IN UPPERHEM = " << edges_in_upperhem_COUNT << std::endl;
+//
+//    int COUNTING_EDGE = 0;
+//    for (int y = 0; y < coordInfoVecs.num_edges; y++)
+//    {
+//        if (generalParams.edges_in_upperhem_list[y] >= 0)
+//        {
+//            COUNTING_EDGE += 1;
+//        }
+//        generalParams.edges_in_upperhem_list_length = COUNTING_EDGE;
+//    }
+//
+//
+//    /*
+//    
+//        SEPARATION OF DV BOUNDARY REGION. THIS CAN ALSO BE PREPROGRAMMED INTO THE STARTING MESH AND SEPARATED AT THE XML PARSER LEVEL.
+//    
+//    1. Find center of the disc (both apical and basal separately)
+//    2. Find boundary of the disc (preferably the distance on the curve)
+//    3. You'll go 5% of the distance from the center to the boundary in whatever direction you choose. So start there. Pick an axis to go along. 
+//    4. Along that axis until the edge of the disc have 5% on either side of the line drawn from the center be part of the DV boundary. 
+//    4. Isolate the nodes in that part and now these are your DV nodes. All edges connecting this region will be a part of the DV boundary region. 
+//        Here is a problem I am anticipating with this. There will be asymmetry in connection so is that something that would affect the simulation? I dont think so, considering how 
+//        actual tissues will have this king of asymmetry as well because of the way the cells are structured. 
+//    5. Now to separate the Origins. Draw a line from the center along the axis orthogonal to the one that the DV boundary lies parallel to. Where it crosses that line is where the 
+//       origin of the Dorsal/Ventral regions lies. 
+//    6. All the nodes connecting the Dorsal origin and Ventral origin, are included in the origin point of the DV boundary. 
+//    
+//    */
+//    
+//    // 1. Compute the new center of the system.
+//    newcenterX = 0.0;
+//    newcenterY = 0.0;
+//    newcenterZ = 0.0;
+//
+//    for (int i = 0; i < generalParams.maxNodeCount; i++)
+//    {
+//        if (generalParams.nodes_in_upperhem[i] == 1)
+//        {
+//            newcenterX += coordInfoVecs.nodeLocX[i];
+//            newcenterY += coordInfoVecs.nodeLocY[i];
+//            newcenterZ += coordInfoVecs.nodeLocZ[i];
+//        }
+//    }
+//    newcenterX = newcenterX / generalParams.maxNodeCount;
+//    newcenterY = newcenterY / generalParams.maxNodeCount;
+//    newcenterZ = newcenterZ / generalParams.maxNodeCount;
+//    
+//    generalParams.centerX = newcenterX; 
+//    generalParams.centerY =newcenterY;
+//    generalParams.centerZ = newcenterZ;
+//
+// 
+//    
+//
+//    /////////////////////////////////////////////////////////////////////
+//    ////////////// END OF IDENTIFYING REG. WITH DIFF. MECH PROP /////////
+//    /////////////////////////////////////////////////////////////////////
+//
+//
+//   
+//    //////////////////////////////////////////////////////////////////////////////////////
+//    /////////////////////////////////////////////////////////////////////////////////////////////
+//    ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//    ////////////////////////////// START OF ACTUAL SIMULATION /////////////////////////////////////////////////////////////////
+//    /////////////////////////////////////////////////////////////////////////////////////////////
+//    //////////////////////////////////////////////////////////////////////////////////////
+//
+//    
+//    std::cout<<"\n Starting the actual simulation. \n"<<std::endl;
+//    // here recenter the mesh first.
+//  
+//
+//    // nav commented out because we are no longer recentering the mesh. 
+//    //    // Compute the new center of the system.
+//    newcenterX = 0.0;
+//    newcenterY = 0.0;
+//    newcenterZ = 0.0;
+//
+//    for (int i = 0; i < generalParams.maxNodeCount; i++)
+//    {
+//        if (generalParams.nodes_in_upperhem[i] == 1)
+//        {
+//            newcenterX += coordInfoVecs.nodeLocX[i];
+//            newcenterY += coordInfoVecs.nodeLocY[i];
+//            newcenterZ += coordInfoVecs.nodeLocZ[i];
+//        }
+//    }
+//    newcenterX = newcenterX / generalParams.maxNodeCount;
+//    newcenterY = newcenterY / generalParams.maxNodeCount;
+//    newcenterZ = newcenterZ / generalParams.maxNodeCount;
+//    
+//    generalParams.centerX = newcenterX; //sumX / nNodes;
+//        generalParams.centerY =newcenterY;// sumY / nNodes;
+//        generalParams.centerZ = newcenterZ;
+//
+//    storage->print_VTK_File();
+//
+//    //// commenting out the following for some tests.  Nav 05/04/2025
+//    std::cout << "number of simulation steps = " << generalParams.Tf << std::endl;
+//
+//
+//    
+//        double sumX = 0.0, sumY = 0.0, sumZ = 0.0;
+//        int nNodes = coordInfoVecs.nodeLocX.size();
+//        //int layerflag = 0; // this is the layer that will be excluded. 
+//        for (int i = 0; i < nNodes; i++)
+//        {  
+//            //if (layerflag == 1 && i >= nNodes/2) break;
+//            //if (layerflag == -1 && i < nNodes/2) continue;
+//                sumX += coordInfoVecs.nodeLocX[i];
+//                sumY += coordInfoVecs.nodeLocY[i];
+//                sumZ += coordInfoVecs.nodeLocZ[i];
+//        }
+//        generalParams.centerX = sumX / nNodes;
+//        generalParams.centerY = sumY / nNodes;
+//        generalParams.centerZ = sumZ / nNodes;
+//        
+//        //std::cout<<"center at "<<layerflag<<" = ("<<generalParams.centerX<<", "<<generalParams.centerY<<", "<<generalParams.centerZ<<") "<< std::endl;
+//
+//    
+//    std::cout<<"Tf = "<< generalParams.Tf<<std::endl;
+//    //    
+//    //    for (int i = 0; i<coordInfoVecs.num_edges; i++){
+//    //        if (i >= 10) break;
+//    //        std::cout<< "initial rest length before strain tensor, at edge = "<< i << " = " <<linearSpringInfoVecs.edge_rest_length[i]<<std::endl;
+//    //        
+//    //    }
+//
+//    //double tol = 1e-8;
+//    double iter =100;// 1/(generalParams.dt*generalParams.tol);
+//    
+//    // if you leave ^ this to be 100 it'll take wayy longer for your simulations. Make it at least 10000.
+//    
+//    ///////////////////////////////////////////////////////////////////
+//    // Okay so let's start the simulation loop for the strain tensor //
+//    ///////////////////////////////////////////////////////////////////
+//    
+//    //generalParams.tol = 1e-4;
+//    
+// //   int layerflag = 0;
+//    
+//    LambdaField lambda;
+//    
+//    //    for (int stage = 0; stage<=stages; stage++){
+//    
+//        double frac = 1.0;///generalParams.Tf; // this fraction should remain what it is. Dont change it. 
+//        
+//      sumX = 0.0, sumY = 0.0, sumZ = 0.0;
+//        
+//        
+//         nNodes = coordInfoVecs.nodeLocX.size();
+//        int layerflag = 0; // this is the layer that will be excluded. 
+//        for (int i = 0; i < nNodes; i++)
+//        {  
+//            //if (layerflag == 1 && i >= nNodes/2) break;
+//            //if (layerflag == -1 && i < nNodes/2) continue;
+//                sumX += coordInfoVecs.nodeLocX[i];
+//                sumY += coordInfoVecs.nodeLocY[i];
+//                sumZ += coordInfoVecs.nodeLocZ[i];
+//        }
+//        generalParams.centerX = sumX / nNodes;
+//        generalParams.centerY = sumY / nNodes;
+//        generalParams.centerZ = sumZ / nNodes;
+//    
+//        StrainTensorGPU::buildVertexLambda(generalParams, coordInfoVecs, lambda, frac);
+//        
+//          //std::cout << "\n[Stage " << stage << "] spring lengths BEFORE strain:\n";
+//    //    for (int e = 0; e < coordInfoVecs.num_edges; ++e) {
+//    //        if (generalParams.edges_in_upperhem[e] == 0) continue;  // skip vertical
+//    //        double L0 = linearSpringInfoVecs.edge_initial_length[e];
+//    //        std::cout
+//    //            << "  edge[" << e << "]: initial_length = "
+//    //            << L0 << "\n";
+//    //    }
+//        StrainTensorGPU::updateEdgeRestLengths(coordInfoVecs,generalParams, lambda, linearSpringInfoVecs, layerflag);
+//        
+//        //Solve_Forces();
+//        //AdvancePositions(coordInfoVecs, generalParams, domainParams);
+//        
+//        
+//        // === PRINT AFTER ===
+//    // std::cout << "[Stage " << stage << "] spring lengths AFTER strain:\n";
+//    //    for (int e = 0; e < coordInfoVecs.num_edges; ++e) {
+//    //        if (generalParams.edges_in_upperhem[e] == 0) continue;  // skip vertical
+//    //        double Lstar = linearSpringInfoVecs.edge_final_length[e];
+//    //        std::cout
+//    //            << "  edge[" << e << "]: strained_length = "
+//    //            << Lstar << "\n";
+//    //    }
+//    generalParams.tol = 1e-4;
+//    
+//    // Things to include:
+//    /*
+//    
+//    1. Volume check
+//    2. Area Check
+//    3. Energy Check
+//    4. Connectivity Check
+//    
+//    */
+//              
+//              ///////////////////////////////////////////////////////////////////////  
+//        // resize edge_rest_length to match the size of the steps between edge_initial and edge_final 
+//        // loop for changing the rest lengths between stages. Here the spring length is broken down into steps and passed into the force kernels. 
+//        for (int step = 0; step<= iter; step++){
+//        
+//            for(int i = 0; i<coordInfoVecs.num_edges; i++){ // this can be done from inside the strain tensor file. 
+//                
+//                double dl = (linearSpringInfoVecs.edge_final_length[i] - linearSpringInfoVecs.edge_initial_length[i])/iter;
+//                linearSpringInfoVecs.edge_rest_length[i] += dl;
+//            }
+//            
+//           // double avg_mvt = 999999.0;
+//            // generalParams.dx = 0.0;
+//            
+//           // std::cout<< "Starting relaxation loop."<<std::endl;
+//            //int k = 0;
+//            
+//            int k = relaxUntilConverged(*this);
+//            
+//           double new_total_energy = linearSpringInfoVecs.linear_spring_energy;
+//                                   //areaTriangleInfoVecs.area_triangle_energy +
+//                                   //bendingTriangleInfoVecs.bending_triangle_energy; 
+//                                   
+//            std::cout<<"Energy = "<<new_total_energy<<", iterations = "<<k<<", = Average Movement = "<<generalParams.dx<<std::endl;
+//                        
+//           // std::cout<<"Exiting relaxation loop. Average movement = "<<generalParams.dx<<", and k = "<< k<<" at step = "<<step<<std::endl;//" and stage = "<<stage<<std::endl;     
+//            if (step > 0 && step % 2 == 0) {
+//                
+//                storage->print_VTK_File(); // this is just for now. To get better simulation results we're gonna view them more frequently later. 
+//            }
+//
+//          }
+//    //////////////////////////////////////
+//    //            
+//           // do{
+//             //   generalParams.dx = 0.0; 
+//                
+//    //                double x1[coordInfoVecs.nodeLocX.size()];
+//    //                double y1[coordInfoVecs.nodeLocX.size()];
+//    //                double z1[coordInfoVecs.nodeLocX.size()];
+//    //                for (int n = 0; n<coordInfoVecs.nodeLocX.size(); n++){ // this can be handled from inside the nodeAdvance.cu
+//    //                    x1[n] = coordInfoVecs.nodeLocX[n];
+//    //                    y1[n] = coordInfoVecs.nodeLocY[n];
+//    //                    z1[n] = coordInfoVecs.nodeLocZ[n];
+//    //                } 
+//                
+//                //avg_mvt = 0.0;
+//               // Solve_Forces();
+//                // AdvancePositions(coordInfoVecs, generalParams, domainParams);
+//                
+//                
+//    //                double x2[coordInfoVecs.nodeLocX.size()];
+//    //                double y2[coordInfoVecs.nodeLocX.size()];
+//    //                double z2[coordInfoVecs.nodeLocX.size()];
+//    //                
+//    //                for (int n = 0; n<coordInfoVecs.nodeLocX.size(); n++){ // same as above. 
+//    //                    x2[n] = coordInfoVecs.nodeLocX[n];
+//    //                    y2[n] = coordInfoVecs.nodeLocY[n];
+//    //                    z2[n] = coordInfoVecs.nodeLocZ[n];
+//    //                    
+//    //                    generalParams.dx+= sqrt((x1[n]-x2[n])*(x1[n]-x2[n])+(y1[n]-y2[n])*(y1[n]-y2[n])+(z1[n]-z2[n])*(z1[n]-z2[n]));
+//    //                }
+//    //                
+//    //                
+//                //avg_mvt=generalParams.dx;   
+//              //  k++;
+//                
+//               // if (k == 4500) break;
+//            //}while (generalParams.dx>generalParams.tol);
+//            
+//            
+//            //if (step == 100 || step == 200 || step == 300 || step == 400 || step == 500 || step == 600 || step == 700 || step == 800 || step == 900 || step == 1000 || step == 2000 || step == 5000 || step == 7000 || step == 9000 ){ // badly done ik but I'll fix it later. 
+//            
+//      //  }
+//        
+//        storage->print_VTK_File();
+//        
+//  //  }
+//    
+//    // strain tensor acts on edge_inital to give edge_final 
+//};
+//
+//
+//
+//
+//
+//// Function to assign the shared pointer to storage.
+//void System::assignStorage(std::shared_ptr<Storage> _storage)
+//{
+//    storage = _storage;
+//};
+//
+//// Function to set the weak pointer to the SystemBuilder.
+//void System::set_weak_builder(std::weak_ptr<SystemBuilder> _weak_bld_ptr)
+//{
+//    weak_bld_ptr = _weak_bld_ptr;
+//};
+//
+//// Function to initialize memory for thrust vectors and set coordInfoVecs values from input.
+//void System::initializeSystem(HostSetInfoVecs & hostSetInfoVecs)
+//{
+//    std::cout << "Initializing" << std::endl;
+//
+//    // Set the max node count, edge count and triangle count.
+//    generalParams.maxNodeCount = hostSetInfoVecs.nodeLocX.size();
+//    coordInfoVecs.num_edges = hostSetInfoVecs.edges2Nodes_1.size();
+//    coordInfoVecs.num_triangles = hostSetInfoVecs.triangles2Nodes_1.size();
+//
+//    std::cout << "num nodes: " << generalParams.maxNodeCount << std::endl;
+//    std::cout << "num edges: " << coordInfoVecs.num_edges << std::endl;
+//    std::cout << "num elems: " << coordInfoVecs.num_triangles << std::endl;
+//    // Allocate memory for various vectors using preallocated memory size.
+//    int mem_prealloc = 4;
+//
+//    // Resize and initialize the following various vectors.
+//    coordInfoVecs.scaling_per_edge.resize(mem_prealloc * coordInfoVecs.num_edges, 0.0);
+//    hostSetInfoVecs.scaling_per_edge.resize(coordInfoVecs.scaling_per_edge.size(), 0.0);
+//
+//    coordInfoVecs.soln_per_triangle.resize(mem_prealloc * coordInfoVecs.num_triangles, INT_MAX);
+//    coordInfoVecs.b_per_triangle.resize(mem_prealloc * coordInfoVecs.num_triangles, INT_MAX);
+//
+//    coordInfoVecs.isNodeFixed.resize(mem_prealloc * hostSetInfoVecs.nodeLocX.size(), false);
+//    coordInfoVecs.prevNodeLocX.resize(mem_prealloc * hostSetInfoVecs.nodeLocX.size());
+//    coordInfoVecs.prevNodeLocY.resize(mem_prealloc * hostSetInfoVecs.nodeLocX.size());
+//    coordInfoVecs.prevNodeLocZ.resize(mem_prealloc * hostSetInfoVecs.nodeLocX.size());
+//
+//    coordInfoVecs.prevNodeForceX.resize(mem_prealloc * hostSetInfoVecs.nodeLocX.size());
+//    coordInfoVecs.prevNodeForceY.resize(mem_prealloc * hostSetInfoVecs.nodeLocX.size());
+//    coordInfoVecs.prevNodeForceZ.resize(mem_prealloc * hostSetInfoVecs.nodeLocX.size());
+//
+//    coordInfoVecs.nodeLocX.resize(mem_prealloc * hostSetInfoVecs.nodeLocX.size());
+//    coordInfoVecs.nodeLocY.resize(mem_prealloc * hostSetInfoVecs.nodeLocX.size());
+//    coordInfoVecs.nodeLocZ.resize(mem_prealloc * hostSetInfoVecs.nodeLocX.size());
+//
+//    // coordInfoVecs.nodeVelX.resize(mem_prealloc*hostSetInfoVecs.nodeVelX.size(), 0.0);
+//    // coordInfoVecs.nodeVelY.resize(mem_prealloc*hostSetInfoVecs.nodeVelY.size(), 0.0);
+//    // coordInfoVecs.nodeVelZ.resize(mem_prealloc*hostSetInfoVecs.nodeVelZ.size(), 0.0);
+//
+//    coordInfoVecs.nodeForceX.resize(mem_prealloc * hostSetInfoVecs.nodeLocX.size(), 0.0);
+//    coordInfoVecs.nodeForceY.resize(mem_prealloc * hostSetInfoVecs.nodeLocX.size(), 0.0);
+//    coordInfoVecs.nodeForceZ.resize(mem_prealloc * hostSetInfoVecs.nodeLocX.size(), 0.0);
+//
+//    coordInfoVecs.triangles2Nodes_1.resize(mem_prealloc * coordInfoVecs.num_triangles);
+//    coordInfoVecs.triangles2Nodes_2.resize(mem_prealloc * coordInfoVecs.num_triangles);
+//    coordInfoVecs.triangles2Nodes_3.resize(mem_prealloc * coordInfoVecs.num_triangles);
+//
+//    coordInfoVecs.triangles2Edges_1.resize(mem_prealloc * coordInfoVecs.num_triangles);
+//    coordInfoVecs.triangles2Edges_2.resize(mem_prealloc * coordInfoVecs.num_triangles);
+//    coordInfoVecs.triangles2Edges_3.resize(mem_prealloc * coordInfoVecs.num_triangles);
+//
+//    coordInfoVecs.triangles2Triangles_1.resize(mem_prealloc * coordInfoVecs.num_triangles, -INT_MAX);
+//    coordInfoVecs.triangles2Triangles_2.resize(mem_prealloc * coordInfoVecs.num_triangles, -INT_MAX);
+//    coordInfoVecs.triangles2Triangles_3.resize(mem_prealloc * coordInfoVecs.num_triangles, -INT_MAX);
+//
+//    hostSetInfoVecs.triangles2Triangles_1.resize(mem_prealloc * coordInfoVecs.num_triangles, -INT_MAX);
+//    hostSetInfoVecs.triangles2Triangles_2.resize(mem_prealloc * coordInfoVecs.num_triangles, -INT_MAX);
+//    hostSetInfoVecs.triangles2Triangles_3.resize(mem_prealloc * coordInfoVecs.num_triangles, -INT_MAX);
+//
+//    coordInfoVecs.edges2Nodes_1.resize(mem_prealloc * coordInfoVecs.num_edges);
+//    coordInfoVecs.edges2Nodes_2.resize(mem_prealloc * coordInfoVecs.num_edges);
+//
+//    coordInfoVecs.edges2Triangles_1.resize(mem_prealloc * coordInfoVecs.num_edges);
+//    coordInfoVecs.edges2Triangles_2.resize(mem_prealloc * coordInfoVecs.num_edges);
+//
+//    coordInfoVecs.nndata1.resize(mem_prealloc * generalParams.maxNodeCount);
+//    coordInfoVecs.nndata2.resize(mem_prealloc * generalParams.maxNodeCount);
+//    coordInfoVecs.nndata3.resize(mem_prealloc * generalParams.maxNodeCount);
+//    coordInfoVecs.nndata4.resize(mem_prealloc * generalParams.maxNodeCount);
+//    coordInfoVecs.nndata5.resize(mem_prealloc * generalParams.maxNodeCount);
+//    coordInfoVecs.nndata6.resize(mem_prealloc * generalParams.maxNodeCount);
+//    coordInfoVecs.nndata7.resize(mem_prealloc * generalParams.maxNodeCount);
+//    coordInfoVecs.nndata8.resize(mem_prealloc * generalParams.maxNodeCount);
+//    coordInfoVecs.nndata9.resize(mem_prealloc * generalParams.maxNodeCount);
+//    coordInfoVecs.SurfaceNormalX.resize(mem_prealloc * generalParams.maxNodeCount);
+//    coordInfoVecs.SurfaceNormalY.resize(mem_prealloc * generalParams.maxNodeCount);
+//    coordInfoVecs.SurfaceNormalZ.resize(mem_prealloc * generalParams.maxNodeCount);
+//
+//    generalParams.nodes_in_upperhem.resize(mem_prealloc * generalParams.maxNodeCount);
+//    generalParams.triangles_in_upperhem.resize(mem_prealloc * coordInfoVecs.num_triangles);
+//    generalParams.edges_in_upperhem.resize(mem_prealloc * coordInfoVecs.num_edges);
+//    generalParams.edges_in_upperhem_list.resize(mem_prealloc * coordInfoVecs.num_edges);
+//    generalParams.boundaries_in_upperhem.resize(mem_prealloc * coordInfoVecs.num_edges, -1);
+//    generalParams.boundaries_in_lowerhem.resize(mem_prealloc * coordInfoVecs.num_edges, -1);
+//
+//    hostSetInfoVecs.nodes_in_upperhem.resize(generalParams.nodes_in_upperhem.size());
+//    generalParams.nodes_in_upperhem = hostSetInfoVecs.nodes_in_upperhem;
+//    hostSetInfoVecs.triangles_in_upperhem.resize(generalParams.triangles_in_upperhem.size());
+//    hostSetInfoVecs.edges_in_upperhem.resize(generalParams.edges_in_upperhem.size());
+//    generalParams.edges_in_upperhem = hostSetInfoVecs.edges_in_upperhem;
+//    hostSetInfoVecs.edges_in_upperhem_list.resize(mem_prealloc * coordInfoVecs.num_edges);
+//    hostSetInfoVecs.boundaries_in_upperhem.resize(mem_prealloc * coordInfoVecs.num_edges, -1);
+//    hostSetInfoVecs.boundaries_in_lowerhem.resize(mem_prealloc * coordInfoVecs.num_edges, -1);
+//
+//    hostSetInfoVecs.nodes2Triangles_1.resize(mem_prealloc * generalParams.maxNodeCount, -INT_MAX);
+//    hostSetInfoVecs.nodes2Triangles_2.resize(mem_prealloc * generalParams.maxNodeCount, -INT_MAX);
+//    hostSetInfoVecs.nodes2Triangles_3.resize(mem_prealloc * generalParams.maxNodeCount, -INT_MAX);
+//    hostSetInfoVecs.nodes2Triangles_4.resize(mem_prealloc * generalParams.maxNodeCount, -INT_MAX);
+//    hostSetInfoVecs.nodes2Triangles_5.resize(mem_prealloc * generalParams.maxNodeCount, -INT_MAX);
+//    hostSetInfoVecs.nodes2Triangles_6.resize(mem_prealloc * generalParams.maxNodeCount, -INT_MAX);
+//    hostSetInfoVecs.nodes2Triangles_7.resize(mem_prealloc * generalParams.maxNodeCount, -INT_MAX);
+//    hostSetInfoVecs.nodes2Triangles_8.resize(mem_prealloc * generalParams.maxNodeCount, -INT_MAX);
+//    hostSetInfoVecs.nodes2Triangles_9.resize(mem_prealloc * generalParams.maxNodeCount, -INT_MAX);
+//
+//    // Part 17
+//
+//    // Resize vectors to allocate memory for nodes-to-triangles mapping.
+//    coordInfoVecs.nodes2Triangles_1.resize(mem_prealloc * generalParams.maxNodeCount, -INT_MAX);
+//    coordInfoVecs.nodes2Triangles_2.resize(mem_prealloc * generalParams.maxNodeCount, -INT_MAX);
+//    coordInfoVecs.nodes2Triangles_3.resize(mem_prealloc * generalParams.maxNodeCount, -INT_MAX);
+//    coordInfoVecs.nodes2Triangles_4.resize(mem_prealloc * generalParams.maxNodeCount, -INT_MAX);
+//    coordInfoVecs.nodes2Triangles_5.resize(mem_prealloc * generalParams.maxNodeCount, -INT_MAX);
+//    coordInfoVecs.nodes2Triangles_6.resize(mem_prealloc * generalParams.maxNodeCount, -INT_MAX);
+//    coordInfoVecs.nodes2Triangles_7.resize(mem_prealloc * generalParams.maxNodeCount, -INT_MAX);
+//    coordInfoVecs.nodes2Triangles_8.resize(mem_prealloc * generalParams.maxNodeCount, -INT_MAX);
+//    coordInfoVecs.nodes2Triangles_9.resize(mem_prealloc * generalParams.maxNodeCount, -INT_MAX);
+//
+//    // Copy nodes-to-triangles mapping information from hostSetInfoVecs to coodInfoVecs and others.
+//    thrust::copy(coordInfoVecs.nodes2Triangles_1.begin(), coordInfoVecs.nodes2Triangles_1.end(), hostSetInfoVecs.nodes2Triangles_1.begin());
+//    thrust::copy(coordInfoVecs.nodes2Triangles_2.begin(), coordInfoVecs.nodes2Triangles_2.end(), hostSetInfoVecs.nodes2Triangles_2.begin());
+//    thrust::copy(coordInfoVecs.nodes2Triangles_3.begin(), coordInfoVecs.nodes2Triangles_3.end(), hostSetInfoVecs.nodes2Triangles_3.begin());
+//    thrust::copy(coordInfoVecs.nodes2Triangles_4.begin(), coordInfoVecs.nodes2Triangles_4.end(), hostSetInfoVecs.nodes2Triangles_4.begin());
+//    thrust::copy(coordInfoVecs.nodes2Triangles_5.begin(), coordInfoVecs.nodes2Triangles_5.end(), hostSetInfoVecs.nodes2Triangles_5.begin());
+//    thrust::copy(coordInfoVecs.nodes2Triangles_6.begin(), coordInfoVecs.nodes2Triangles_6.end(), hostSetInfoVecs.nodes2Triangles_6.begin());
+//    thrust::copy(coordInfoVecs.nodes2Triangles_7.begin(), coordInfoVecs.nodes2Triangles_7.end(), hostSetInfoVecs.nodes2Triangles_7.begin());
+//    thrust::copy(coordInfoVecs.nodes2Triangles_8.begin(), coordInfoVecs.nodes2Triangles_8.end(), hostSetInfoVecs.nodes2Triangles_8.begin());
+//    thrust::copy(coordInfoVecs.nodes2Triangles_9.begin(), coordInfoVecs.nodes2Triangles_9.end(), hostSetInfoVecs.nodes2Triangles_9.begin());
+//
+//    // copy info to GPU
+//    std::cout << "Copying" << std::endl;
+//    thrust::copy(hostSetInfoVecs.isNodeFixed.begin(), hostSetInfoVecs.isNodeFixed.end(), coordInfoVecs.isNodeFixed.begin());
+//
+//    // Print information about fixed nodes in hostSetInfoVecs and coordInfoVecs.
+//    std::cout << "fixed_node_in_host: " << std::endl;
+//    for (int k = 0; k < hostSetInfoVecs.isNodeFixed.size(); k++)
+//    {
+//    }
+//    std::cout << "end_of_fixed_node_host_printout" << std::endl;
+//    std::cout << "fixed_node_in_device: " << std::endl;
+//    for (int k = 0; k < coordInfoVecs.isNodeFixed.size(); k++)
+//    {
+//    }
+//    std::cout << "end_of_fixed_node_device_printout" << std::endl;
+//    std::cout << "size of host fixed " << hostSetInfoVecs.isNodeFixed.size() << std::endl;
+//    std::cout << "size of device fixed " << coordInfoVecs.isNodeFixed.size() << std::endl;
+//
+//    // initialize various vectors with zeros or values from hostSetInfoVecs.
+//    //  Fill operations for other nodeForce and prevNodeForce vectors.
+//    thrust::fill(coordInfoVecs.nodeForceX.begin(), coordInfoVecs.nodeForceX.end(), 0.0);
+//    thrust::fill(coordInfoVecs.nodeForceY.begin(), coordInfoVecs.nodeForceY.end(), 0.0);
+//    thrust::fill(coordInfoVecs.nodeForceZ.begin(), coordInfoVecs.nodeForceZ.end(), 0.0);
+//
+//    thrust::fill(coordInfoVecs.prevNodeForceX.begin(), coordInfoVecs.prevNodeForceX.end(), 0.0);
+//    thrust::fill(coordInfoVecs.prevNodeForceY.begin(), coordInfoVecs.prevNodeForceY.end(), 0.0);
+//    thrust::fill(coordInfoVecs.prevNodeForceZ.begin(), coordInfoVecs.prevNodeForceZ.end(), 0.0);
+//
+//    // Copy node locations and other related information from hostSetInfoVecs to coordInfoVecs and other copy operations for triangles, edges and other related vectors.
+//    thrust::copy(hostSetInfoVecs.nodeLocX.begin(), hostSetInfoVecs.nodeLocX.end(), coordInfoVecs.prevNodeLocX.begin());
+//    thrust::copy(hostSetInfoVecs.nodeLocY.begin(), hostSetInfoVecs.nodeLocY.end(), coordInfoVecs.prevNodeLocY.begin());
+//    thrust::copy(hostSetInfoVecs.nodeLocZ.begin(), hostSetInfoVecs.nodeLocZ.end(), coordInfoVecs.prevNodeLocZ.begin());
+//
+//    thrust::copy(hostSetInfoVecs.nodeLocX.begin(), hostSetInfoVecs.nodeLocX.end(), coordInfoVecs.nodeLocX.begin());
+//    thrust::copy(hostSetInfoVecs.nodeLocY.begin(), hostSetInfoVecs.nodeLocY.end(), coordInfoVecs.nodeLocY.begin());
+//    thrust::copy(hostSetInfoVecs.nodeLocZ.begin(), hostSetInfoVecs.nodeLocZ.end(), coordInfoVecs.nodeLocZ.begin());
+//
+//    thrust::copy(hostSetInfoVecs.triangles2Nodes_1.begin(), hostSetInfoVecs.triangles2Nodes_1.end(), coordInfoVecs.triangles2Nodes_1.begin());
+//    thrust::copy(hostSetInfoVecs.triangles2Nodes_2.begin(), hostSetInfoVecs.triangles2Nodes_2.end(), coordInfoVecs.triangles2Nodes_2.begin());
+//    thrust::copy(hostSetInfoVecs.triangles2Nodes_3.begin(), hostSetInfoVecs.triangles2Nodes_3.end(), coordInfoVecs.triangles2Nodes_3.begin());
+//
+//    thrust::copy(hostSetInfoVecs.triangles2Edges_1.begin(), hostSetInfoVecs.triangles2Edges_1.end(), coordInfoVecs.triangles2Edges_1.begin());
+//    thrust::copy(hostSetInfoVecs.triangles2Edges_2.begin(), hostSetInfoVecs.triangles2Edges_2.end(), coordInfoVecs.triangles2Edges_2.begin());
+//    thrust::copy(hostSetInfoVecs.triangles2Edges_3.begin(), hostSetInfoVecs.triangles2Edges_3.end(), coordInfoVecs.triangles2Edges_3.begin());
+//
+//    thrust::copy(hostSetInfoVecs.edges2Nodes_1.begin(), hostSetInfoVecs.edges2Nodes_1.end(), coordInfoVecs.edges2Nodes_1.begin());
+//    thrust::copy(hostSetInfoVecs.edges2Nodes_2.begin(), hostSetInfoVecs.edges2Nodes_2.end(), coordInfoVecs.edges2Nodes_2.begin());
+//
+//    thrust::copy(hostSetInfoVecs.edges2Triangles_1.begin(), hostSetInfoVecs.edges2Triangles_1.end(), coordInfoVecs.edges2Triangles_1.begin());
+//    thrust::copy(hostSetInfoVecs.edges2Triangles_2.begin(), hostSetInfoVecs.edges2Triangles_2.end(), coordInfoVecs.edges2Triangles_2.begin());
+//
+//    thrust::copy(hostSetInfoVecs.nndata1.begin(), hostSetInfoVecs.nndata1.end(), coordInfoVecs.nndata1.begin());
+//    thrust::copy(hostSetInfoVecs.nndata2.begin(), hostSetInfoVecs.nndata2.end(), coordInfoVecs.nndata2.begin());
+//    thrust::copy(hostSetInfoVecs.nndata3.begin(), hostSetInfoVecs.nndata3.end(), coordInfoVecs.nndata3.begin());
+//    thrust::copy(hostSetInfoVecs.nndata4.begin(), hostSetInfoVecs.nndata4.end(), coordInfoVecs.nndata4.begin());
+//    thrust::copy(hostSetInfoVecs.nndata5.begin(), hostSetInfoVecs.nndata5.end(), coordInfoVecs.nndata5.begin());
+//    thrust::copy(hostSetInfoVecs.nndata6.begin(), hostSetInfoVecs.nndata6.end(), coordInfoVecs.nndata6.begin());
+//    thrust::copy(hostSetInfoVecs.nndata7.begin(), hostSetInfoVecs.nndata7.end(), coordInfoVecs.nndata7.begin());
+//    thrust::copy(hostSetInfoVecs.nndata8.begin(), hostSetInfoVecs.nndata8.end(), coordInfoVecs.nndata8.begin());
+//    thrust::copy(hostSetInfoVecs.nndata9.begin(), hostSetInfoVecs.nndata9.end(), coordInfoVecs.nndata9.begin());
+//
+//    // Resize and initialize the 'u' vector.
+//    coordInfoVecs.u.resize(mem_prealloc * coordInfoVecs.num_triangles);
+//
+//    // Part 18
+//
+//    // Allocate memory for additiional data structures.
+//
+//    // Area triangle info vec.
+//    // Number of area springs is the number of triangles
+//    std::cout << "Mem" << std::endl;
+//    // Allocate memory for temporary node information in unreduced form for area springs
+//    areaTriangleInfoVecs.tempNodeIdUnreduced.resize(mem_prealloc * areaTriangleInfoVecs.factor * coordInfoVecs.num_triangles);
+//    areaTriangleInfoVecs.tempNodeForceXUnreduced.resize(mem_prealloc * areaTriangleInfoVecs.factor * coordInfoVecs.num_triangles);
+//    areaTriangleInfoVecs.tempNodeForceYUnreduced.resize(mem_prealloc * areaTriangleInfoVecs.factor * coordInfoVecs.num_triangles);
+//    areaTriangleInfoVecs.tempNodeForceZUnreduced.resize(mem_prealloc * areaTriangleInfoVecs.factor * coordInfoVecs.num_triangles);
+//
+//    // Allocate memory for temporary node information in reduced form for area springs.
+//    areaTriangleInfoVecs.tempNodeIdReduced.resize(mem_prealloc * areaTriangleInfoVecs.factor * coordInfoVecs.num_triangles);
+//    areaTriangleInfoVecs.tempNodeForceXReduced.resize(mem_prealloc * areaTriangleInfoVecs.factor * coordInfoVecs.num_triangles);
+//    areaTriangleInfoVecs.tempNodeForceYReduced.resize(mem_prealloc * areaTriangleInfoVecs.factor * coordInfoVecs.num_triangles);
+//    areaTriangleInfoVecs.tempNodeForceZReduced.resize(mem_prealloc * areaTriangleInfoVecs.factor * coordInfoVecs.num_triangles);
+//
+//    // beinding triangle info vec
+//    // num bending springs is the number of times each edge is between two triangles.
+//    bendingTriangleInfoVecs.numBendingSprings = coordInfoVecs.num_edges;
+//
+//    // Allocate memory for temporary node information in unreduced form for bending springs.
+//    bendingTriangleInfoVecs.tempNodeIdUnreduced.resize(mem_prealloc * bendingTriangleInfoVecs.factor * bendingTriangleInfoVecs.numBendingSprings);
+//    bendingTriangleInfoVecs.tempNodeForceXUnreduced.resize(mem_prealloc * bendingTriangleInfoVecs.factor * bendingTriangleInfoVecs.numBendingSprings);
+//    bendingTriangleInfoVecs.tempNodeForceYUnreduced.resize(mem_prealloc * bendingTriangleInfoVecs.factor * bendingTriangleInfoVecs.numBendingSprings);
+//    bendingTriangleInfoVecs.tempNodeForceZUnreduced.resize(mem_prealloc * bendingTriangleInfoVecs.factor * bendingTriangleInfoVecs.numBendingSprings);
+//
+//    // Allocate memory for temporary node information in reduced form for bending springs.
+//    bendingTriangleInfoVecs.tempNodeIdReduced.resize(mem_prealloc * bendingTriangleInfoVecs.factor * bendingTriangleInfoVecs.numBendingSprings);
+//    bendingTriangleInfoVecs.tempNodeForceXReduced.resize(mem_prealloc * bendingTriangleInfoVecs.factor * bendingTriangleInfoVecs.numBendingSprings);
+//    bendingTriangleInfoVecs.tempNodeForceYReduced.resize(mem_prealloc * bendingTriangleInfoVecs.factor * bendingTriangleInfoVecs.numBendingSprings);
+//    bendingTriangleInfoVecs.tempNodeForceZReduced.resize(mem_prealloc * bendingTriangleInfoVecs.factor * bendingTriangleInfoVecs.numBendingSprings);
+//    
+//    bendingTriangleInfoVecs.initial_angle.resize(coordInfoVecs.num_triangles);
+//    thrust::fill(bendingTriangleInfoVecs.initial_angle.begin(), bendingTriangleInfoVecs.initial_angle.end(), 0.0087);
+//        
+//    // linear springs info vectors.
+//    //  Allocate memory for temporary node information in unreduced form for linear springs.
+//    linearSpringInfoVecs.tempNodeIdUnreduced.resize(mem_prealloc * linearSpringInfoVecs.factor * coordInfoVecs.num_edges);
+//    linearSpringInfoVecs.tempNodeForceXUnreduced.resize(mem_prealloc * linearSpringInfoVecs.factor * coordInfoVecs.num_edges);
+//    linearSpringInfoVecs.tempNodeForceYUnreduced.resize(mem_prealloc * linearSpringInfoVecs.factor * coordInfoVecs.num_edges);
+//    linearSpringInfoVecs.tempNodeForceZUnreduced.resize(mem_prealloc * linearSpringInfoVecs.factor * coordInfoVecs.num_edges);
+//
+//    // Allocate memory for temporary node information in reduced form for bending springs.
+//    linearSpringInfoVecs.tempNodeIdReduced.resize(mem_prealloc * linearSpringInfoVecs.factor * coordInfoVecs.num_edges);
+//    linearSpringInfoVecs.tempNodeForceXReduced.resize(mem_prealloc * linearSpringInfoVecs.factor * coordInfoVecs.num_edges);
+//    linearSpringInfoVecs.tempNodeForceYReduced.resize(mem_prealloc * linearSpringInfoVecs.factor * coordInfoVecs.num_edges);
+//    linearSpringInfoVecs.tempNodeForceZReduced.resize(mem_prealloc * linearSpringInfoVecs.factor * coordInfoVecs.num_edges);
+//
+//    // Clear edge_initial_length vector for linear springs.
+//    // linearSpringInfoVecs.edge_initial_length.clear();
+//    // linearSpringInfoVecs.edge_rest_length.clear();
+//
+//    // linearSpringInfoVecs.edge_rest_length.resize(hostSetInfoVecs.edge_rest_length.size());
+//    linearSpringInfoVecs.edge_final_length.resize(hostSetInfoVecs.edge_initial_length.size());
+//    linearSpringInfoVecs.edge_initial_length = hostSetInfoVecs.edge_initial_length;
+//    linearSpringInfoVecs.edge_final_length = hostSetInfoVecs.edge_initial_length;
+//    
+//    
+//    std::cout << "host edge_initial_length size = " << hostSetInfoVecs.edge_initial_length.size() << std::endl;
+//    std::cout << "device edge_initial_length size = " << linearSpringInfoVecs.edge_initial_length.size() << std::endl;
+//
+//    //  for (int e = 0; e < coordInfoVecs.num_edges; ++e) {
+//    //    int i = coordInfoVecs.edges2Nodes_1[e];
+//    //    int j = coordInfoVecs.edges2Nodes_2[e];
+//    //    double dx = hostSetInfoVecs.nodeLocX[j] - hostSetInfoVecs.nodeLocX[i];
+//    //    double dy = hostSetInfoVecs.nodeLocY[j] - hostSetInfoVecs.nodeLocY[i];
+//    //    double dz = hostSetInfoVecs.nodeLocZ[j] - hostSetInfoVecs.nodeLocZ[i];
+//    //    double dist = sqrt(dx*dx + dy*dy + dz*dz);
+//    //    //hostSetInfoVecs.edge_initial_length.push_back(dist);    // already done for initial
+//    //    hostSetInfoVecs.edge_rest_length.push_back(dist);
+//    //    //std::cout<< "edge_rest_length = " << hostSetInfoVecs.edge_initial_length[i]<<std::endl; in the current data structure it gave me 1021 edges. That's good. Now that they have been initialized I should start changing the rest lengths.
+//    //    }
+//
+//    // thrust::copy(linearSpringInfoVecs.edge_rest_length.begin(),
+//    //              linearSpringInfoVecs.edge_rest_length.end(),
+//    //              hostSetInfoVecs.edge_rest_length.begin());
+//
+//    linearSpringInfoVecs.edge_rest_length = hostSetInfoVecs.edge_initial_length;
+//
+//    //linearSpringInfoVecs.edge_rest_length.resize(1/(generalParams.dt*generalParams.tol)) //= hostSetInfoVecs.edge_rest_length;
+//
+//    std::cout << "host edge_rest_length size = " << hostSetInfoVecs.edge_rest_length.size() << std::endl;
+//    std::cout << "device edge_rest_length size = " << linearSpringInfoVecs.edge_rest_length.size() << std::endl;
+//
+//    //linearSpringInfoVecs.edge_final_length.resize(coordInfoVecs.num_edges);
+//
+//    //linearSpringInfoVecs.edge_final_length = linearSpringInfoVecs.edge_initial_length;
+//
+//    // This loop is to test out whether the edge_rest_length is being initialized properly.
+//    // for (int i = 0; i < hostSetInfoVecs.edge_rest_length.size(); i++) {
+//    //    std::cout<< "edge_rest_length # "<< i <<" = "<< hostSetInfoVecs.edge_rest_length[i]<<std::endl;
+//    //    std::cout<< "edge_initial_length # "<< i <<" = "<< hostSetInfoVecs.edge_initial_length[i]<<std::endl;
+//    //}
+//
+//    // Resize the hostSetInfoVecs for data transfer between host and device.
+//    hostSetInfoVecs.isNodeFixed.resize(mem_prealloc * hostSetInfoVecs.nodeLocX.size());
+//
+//    hostSetInfoVecs.nodeLocX.resize(coordInfoVecs.nodeLocX.size());
+//    hostSetInfoVecs.nodeLocY.resize(coordInfoVecs.nodeLocX.size());
+//    hostSetInfoVecs.nodeLocZ.resize(coordInfoVecs.nodeLocX.size());
+//    std::cout << "Host_nodeLocX size = " << hostSetInfoVecs.nodeLocX.size() << std::endl;
+//
+//    // hostSetInfoVecs.nodeVelX.resize(coordInfoVecs.nodeVelX.size());
+//    // hostSetInfoVecs.nodeVelY.resize(coordInfoVecs.nodeVelY.size());
+//    // hostSetInfoVecs.nodeVelZ.resize(coordInfoVecs.nodeVelZ.size());
+//
+//    hostSetInfoVecs.nodeForceX.resize(coordInfoVecs.nodeLocX.size());
+//    hostSetInfoVecs.nodeForceY.resize(coordInfoVecs.nodeLocX.size());
+//    hostSetInfoVecs.nodeForceZ.resize(coordInfoVecs.nodeLocX.size());
+//    std::cout << "Host_nodeForceX size = " << hostSetInfoVecs.nodeLocX.size() << std::endl;
+//
+//    hostSetInfoVecs.triangles2Nodes_1.resize(coordInfoVecs.triangles2Nodes_1.size());
+//    hostSetInfoVecs.triangles2Nodes_2.resize(coordInfoVecs.triangles2Nodes_2.size());
+//    hostSetInfoVecs.triangles2Nodes_3.resize(coordInfoVecs.triangles2Nodes_3.size());
+//    std::cout << "Host_triangles2Nodes size = " << hostSetInfoVecs.triangles2Nodes_1.size() << std::endl;
+//
+//    hostSetInfoVecs.triangles2Edges_1.resize(coordInfoVecs.triangles2Edges_1.size());
+//    hostSetInfoVecs.triangles2Edges_2.resize(coordInfoVecs.triangles2Edges_2.size());
+//    hostSetInfoVecs.triangles2Edges_3.resize(coordInfoVecs.triangles2Edges_3.size());
+//    std::cout << "Host_triangles2Edges size = " << hostSetInfoVecs.triangles2Edges_1.size() << std::endl;
+//
+//    hostSetInfoVecs.edges2Nodes_1.resize(coordInfoVecs.edges2Nodes_1.size());
+//    hostSetInfoVecs.edges2Nodes_2.resize(coordInfoVecs.edges2Nodes_2.size());
+//    std::cout << "Host_edges2Nodes size = " << hostSetInfoVecs.edges2Nodes_1.size() << std::endl;
+//
+//    hostSetInfoVecs.edges2Triangles_1.resize(coordInfoVecs.edges2Triangles_1.size());
+//    hostSetInfoVecs.edges2Triangles_2.resize(coordInfoVecs.edges2Triangles_2.size());
+//    std::cout << "Host_edges2Triangles size = " << hostSetInfoVecs.edges2Triangles_1.size() << std::endl;
+//
+//    hostSetInfoVecs.nndata1.resize(mem_prealloc * generalParams.maxNodeCount);
+//    hostSetInfoVecs.nndata2.resize(mem_prealloc * generalParams.maxNodeCount);
+//    hostSetInfoVecs.nndata3.resize(mem_prealloc * generalParams.maxNodeCount);
+//    hostSetInfoVecs.nndata4.resize(mem_prealloc * generalParams.maxNodeCount);
+//    hostSetInfoVecs.nndata5.resize(mem_prealloc * generalParams.maxNodeCount);
+//    hostSetInfoVecs.nndata6.resize(mem_prealloc * generalParams.maxNodeCount);
+//    hostSetInfoVecs.nndata7.resize(mem_prealloc * generalParams.maxNodeCount);
+//    hostSetInfoVecs.nndata8.resize(mem_prealloc * generalParams.maxNodeCount);
+//    hostSetInfoVecs.nndata9.resize(mem_prealloc * generalParams.maxNodeCount);
+//
+//    // Print message indicating the system is ready.
+//    std::cout << "System Ready" << std::endl;
+//
+//    // Allocate memory for buckets.
+//    auxVecs.id_bucket.resize(generalParams.maxNodeCount);
+//    auxVecs.id_value.resize(generalParams.maxNodeCount);
+//    auxVecs.id_bucket_expanded.resize(27 * (generalParams.maxNodeCount));
+//    auxVecs.id_value_expanded.resize(27 * (generalParams.maxNodeCount));
+//};
+//

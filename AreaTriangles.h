@@ -151,9 +151,9 @@ struct AreaSpringFunctor {
 
         
             // Calculate positions of the nodes
-            CVec3 ri = thrust::make_tuple<double>(locXAddr[id_i], locYAddr[id_i], locZAddr[id_i]);
-            CVec3 rj = thrust::make_tuple<double>(locXAddr[id_j], locYAddr[id_j], locZAddr[id_j]);
-            CVec3 rk = thrust::make_tuple<double>(locXAddr[id_k], locYAddr[id_k], locZAddr[id_k]);
+            CVec3 ri = thrust::make_tuple(locXAddr[id_i], locYAddr[id_i], locZAddr[id_i]);
+            CVec3 rj = thrust::make_tuple(locXAddr[id_j], locYAddr[id_j], locZAddr[id_j]);
+            CVec3 rk = thrust::make_tuple(locXAddr[id_k], locYAddr[id_k], locZAddr[id_k]);
 
             CVec3 rkj = CVec3_subtract(rk, rj);
             CVec3 rij = CVec3_subtract(ri, rj);
@@ -166,33 +166,33 @@ struct AreaSpringFunctor {
             double A2 = thrust::get<1>(A);
             double A3 = thrust::get<2>(A);
             
-            CVec3 A1Rj = thrust::make_tuple<double>(
+            CVec3 A1Rj = thrust::make_tuple(
                 0.0, -thrust::get<2>(rij) + thrust::get<2>(rkj), -thrust::get<1>(rkj) + thrust::get<1>(rij));
                 //[0, -Rij(3)+Rkj(3), -Rkj(2)+Rij(2)];
-            CVec3 A2Rj = thrust::make_tuple<double>(    
+            CVec3 A2Rj = thrust::make_tuple(    
                 thrust::get<2>(rij) - thrust::get<2>(rkj), 0.0, thrust::get<0>(rkj) - thrust::get<0>(rij));
                 //[Rij(3)-Rkj(3), 0, Rkj(1)-Rij(1)];
-            CVec3 A3Rj = thrust::make_tuple<double>(
+            CVec3 A3Rj = thrust::make_tuple(
                 -thrust::get<1>(rij) + thrust::get<1>(rkj), -thrust::get<0>(rkj) + thrust::get<0>(rij), 0.0);
                 //[-Rij(2)+Rkj(2), -Rkj(1)+Rij(1), 0];
 
-            CVec3 A1Rk = thrust::make_tuple<double>(
+            CVec3 A1Rk = thrust::make_tuple(
                 0.0, thrust::get<2>(rij), -thrust::get<1>(rij));
                 //[0, Rij(3), -Rij(2)];
             //Derivative of A1 with respect to [Rkx, Rky, Rkz].
-            CVec3 A2Rk = thrust::make_tuple<double>(
+            CVec3 A2Rk = thrust::make_tuple(
                 -thrust::get<2>(rij), 0.0, thrust::get<0>(rij));
                 //[-Rij(3), 0, Rij(1)];
-            CVec3 A3Rk = thrust::make_tuple<double>(
+            CVec3 A3Rk = thrust::make_tuple(
                 thrust::get<1>(rij), -thrust::get<0>(rij), 0.0);
                 //[Rij(2), -Rij(1), 0];
-            CVec3 A1Ri = thrust::make_tuple<double>(
+            CVec3 A1Ri = thrust::make_tuple(
                 0.0, -thrust::get<2>(rkj), thrust::get<1>(rkj));
                 //[0, -Rkj(3), Rkj(2)];
-            CVec3 A2Ri = thrust::make_tuple<double>(
+            CVec3 A2Ri = thrust::make_tuple(
                 thrust::get<2>(rkj), 0.0, -thrust::get<0>(rkj));
                 //[Rkj(3), 0, -Rkj(1)];
-            CVec3 A3Ri = thrust::make_tuple<double>(
+            CVec3 A3Ri = thrust::make_tuple(
                 -thrust::get<1>(rkj), thrust::get<0>(rkj), 0.0);
                 //[-Rkj(2), Rkj(1), 0];
         

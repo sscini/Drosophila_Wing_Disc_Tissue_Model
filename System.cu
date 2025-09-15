@@ -1,184 +1,3 @@
-/*
-
-Well you didnt save our last rant did you. Good on you!!
-Sarcasm aside..HOW COULD YOU. WE WORKED HARD ON THAT. DAMMIT NAV.
-
-SO here is where I am rn. adding a verlet velocity advancer for energy conservation to my current node advance file. Here is what I have done.
-
-I have added a new vector nodeVelX/Y/Z in system.h and systemstructures.h. coordInfoVecs and hostSetInfoVecs respectively. I have then gone into system.cu and initialized it. Idk if there are other places that this parameter needs to be updated. I'll change it as it goes along. Might be happening in utilities.cpp. Lez see
-
-Okay so here's where we're at. We have the double layered spring model being fed into the tensor and computed but for some reason all the springs are being pulled into each other.
-Need to figure out why this is happening right after relaxation. Should not be the case but it is.
-
-Next thing to do is to separate the vertical spring constants from the rest of the mesh computation. Maybe treat them like the septin ring ones? Let's start work on that.
-
-Things to keep in mind:
-
-Linear Springs - the initial length is the edge_initial_length array and the final length it has to go to is the edge_rest_length. So when we're starting out we dont want any linear energy acting
-the springs. Once the strain tensor is applied, we will then have the lengths be perturbed. So modify that function accordingly.
-
-In the Science Advances paper they have used a CSV to input the strain parameters. Maybe we need to be doing the same thing.
-
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////// NEW WORK FLOW ////////////////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-
-1. Start by putting vertical spring lengths into the septin ring nodes.
-
-
-2. MAIN ALGORITH FLOW:
-  a. edge_initial_lengths -> initial lengths of the edges. First start by calculating the final FINAL resting lengths through application of the strain tensor OR
-     Start by setting a total time for simulation. Use that to get the total number of steps. Then use that to figure out final rest length from the strain tensor. Store this in a new vector called
-     edge_final_length.
-     NB - TOP AND BOTTOM LAYERS HAVE THEIR REST LENGTHS UPDATED BY THE SAME AMOUNT IN THE ACTIVE SHAPE PROGRAMMING PAPER.
-
-     Now when the strain tensor runs it'll be broken down into steps and incrementally run so it'll be - edge_rest_length(T) = edge_initial_length + (edge_final_length - edge_initial_length) *T/Tf
-     Here Tf is the quasi static number of steps the simulation takes place in.
-
-  b. Here's how the energy is going to change: linear_spring_energy = 1/2 sum_over_all_edges ( k * (edge_current_length - edge_rest_length)^2. Overdamped dynamics is where edge_current_length comes
-     into play.
-
-  c. Energy must now be minimized. Look at notes for equations.
-
-     Apply first strain increment - solve forces - quasi statically search for the minimum energy using tau - advance node positions - repeat.
-
-  Tf - edge_final_length
-  T - edge_rest_length
-  tau - edge_current_length
-  T_0 - edge_initial length
-
-  okay most of the above things are done.
-
-  Need to:
-  1. Look into LinearSprings files
-  2. Recenter mesh initially so that it does not have the initial mesh in a separate position.
-  3. Modify the strain tensor so its only working on one layer at a time.
-  4. Figure out why the vertical springs have so much tension and collapse.
-
-
-
-  Okay so here's where we're at right now:
-
-  I'm trying to figure out why my vertical springs are not being calculated properly. I think I'll need to verify the data structure and see which edges are connected to which ones then come up with an algorithm that would find those nodes and calculate the distance between them. This would be added in systembuilder.
-
-  Oh and also currently all my constants are being set as the default ones and not taken from the data structure so that's also a bummer.
-
-*/
-/*
-
-Well you didnt save our last rant did you. Good on you!!
-Sarcasm aside..HOW COULD YOU. WE WORKED HARD ON THAT. DAMMIT NAV.
-
-SO here is where I am rn. adding a verlet velocity advancer for energy conservation to my current node advance file. Here is what I have done.
-
-I have added a new vector nodeVelX/Y/Z in system.h and systemstructures.h. coordInfoVecs and hostSetInfoVecs respectively. I have then gone into system.cu and initialized it. Idk if there are other places that this parameter needs to be updated. I'll change it as it goes along. Might be happening in utilities.cpp. Lez see
-
-Okay so here's where we're at. We have the double layered spring model being fed into the tensor and computed but for some reason all the springs are being pulled into each other.
-Need to figure out why this is happening right after relaxation. Should not be the case but it is.
-
-Next thing to do is to separate the vertical spring constants from the rest of the mesh computation. Maybe treat them like the septin ring ones? Let's start work on that.
-
-Things to keep in mind:
-
-Linear Springs - the initial length is the edge_initial_length array and the final length it has to go to is the edge_rest_length. So when we're starting out we dont want any linear energy acting
-the springs. Once the strain tensor is applied, we will then have the lengths be perturbed. So modify that function accordingly.
-
-In the Science Advances paper they have used a CSV to input the strain parameters. Maybe we need to be doing the same thing.
-
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////// NEW WORK FLOW ////////////////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-
-1. Start by putting vertical spring lengths into the septin ring nodes.
-
-
-2. MAIN ALGORITH FLOW:
-a. edge_initial_lengths -> initial lengths of the edges. First start by calculating the final FINAL resting lengths through application of the strain tensor OR
-   Start by setting a total time for simulation. Use that to get the total number of steps. Then use that to figure out final rest length from the strain tensor. Store this in a new vector called
-   edge_final_length.
-   NB - TOP AND BOTTOM LAYERS HAVE THEIR REST LENGTHS UPDATED BY THE SAME AMOUNT IN THE ACTIVE SHAPE PROGRAMMING PAPER.
-
-   Now when the strain tensor runs it'll be broken down into steps and incrementally run so it'll be - edge_rest_length(T) = edge_initial_length + (edge_final_length - edge_initial_length) *T/Tf
-   Here Tf is the quasi static number of steps the simulation takes place in.
-
-b. Here's how the energy is going to change: linear_spring_energy = 1/2 sum_over_all_edges ( k * (edge_current_length - edge_rest_length)^2. Overdamped dynamics is where edge_current_length comes
-   into play.
-
-c. Energy must now be minimized. Look at notes for equations.
-
-   Apply first strain increment - solve forces - quasi statically search for the minimum energy using tau - advance node positions - repeat.
-
-Tf - edge_final_length
-T - edge_rest_length
-tau - edge_current_length
-T_0 - edge_initial length
-
-okay most of the above things are done.
-
-Need to:
-1. Look into LinearSprings files
-2. Recenter mesh initially so that it does not have the initial mesh in a separate position.
-3. Modify the strain tensor so its only working on one layer at a time.
-4. Figure out why the vertical springs have so much tension and collapse.
-
-
-
-Okay so here's where we're at right now:
-
-I'm trying to figure out why my vertical springs are not being calculated properly. I think I'll need to verify the data structure and see which edges are connected to which ones then come up with an algorithm that would find those nodes and calculate the distance between them. This would be added in systembuilder.
-
-Oh and also currently all my constants are being set as the default ones and not taken from the data structure so that's also a bummer.
-
-06/06/25:
-
-Okay so quals are 6 days away. less than that actually. You can do it! Good luck
-
-In the meantime let's look at the plan beyond quals. 
-
-1. Make sure strain tensor is correct. I have my doubts about it right now. 
-2. Gradient descent takes fricking AGES. Figure out why this is. It really should not be. 
-3. Remove the scale parameter settings for hill const diff for wall weakening from your code. 
-4. This is the last one. And a big one. START MAKING YOUR 3D SCE model. We'll figure out couplings later. But for now start reading the papers on it.
-
-
-
-06/23/25 
-
-Okay so the month of June is pretty much over now. Passed the quals and now I'm just drifting. Where do I go from here. I guess a lot of people feel this way after a taxing run where they 
-do a long stretch and burn themselves out. I know I'm not a significant part of this lab and so I will keep working quietly on the things that are assigned me. I wont let it break my spirit tho. 
-
-
-From tomorrow I will start working on transfering this code to python and seeing if we can have a real time updating screen for the visuals. We'll also do parallelization in python for it. Will be 
-another really big task but I have high hopes for the summer. So lez see. 
-
-Email Khoi. Ask him for help with this. 
-
-
-/////////////////////////////////////////////////////
-
-Alright we're back again. This time for real 
-
-07/06/2025
-
-Let's see now. 
-
-We've implemented strain tensor but we do not know if it is correct. So go over that once more. 
-
-BUT FIRST
- 
-Start by separating DV boundary. 
- Implement Strain tensor on DV boundary. 
- Then check strain tensor. 
- Alongside, make sure to set up the local version of the running code 
- Look up how to model thick tissues with mechanical properties. 
- 
- 
- Also know that you're not getting any simulation results right now which means you've potentially deleted a file that could have been useful or a thing in System.cu that could have been useful. So let's do some debugging. 
-
-*/
-
 #include <stdio.h>
 #include "System.h"
 #include "SystemStructures.h"
@@ -220,7 +39,7 @@ int count_bigger(const std::vector<int> &elems)
 // Constructor for the System class.
 System::System() {};
 
-// Print net force on nodes along a radial line (? ˜ 0) from disc center to boundary
+// Print net force on nodes along a radial line (? Â˜ 0) from disc center to boundary
 void System::PrintForce() {
     // Copy device forces to host
     thrust::host_vector<double> h_fx = coordInfoVecs.nodeForceX;
@@ -1219,7 +1038,7 @@ void System::solveSystem()
     // int edges_in_upperhem_COUNT = 0;
     //
     // for (int i = 0; i < coordInfoVecs.num_edges; i++){
-    //// NEW: Compute the edge’s midpoint z coordinate
+    //// NEW: Compute the edgeÂ’s midpoint z coordinate
     // double avg_z = (coordInfoVecs.nodeLocZ[coordInfoVecs.edges2Nodes_1[i]] +
     //                 coordInfoVecs.nodeLocZ[coordInfoVecs.edges2Nodes_2[i]]) / 2.0;
     // if (avg_z <= 0.5) {
@@ -2512,14 +2331,14 @@ void System::initializeSystem(HostSetInfoVecs & hostSetInfoVecs)
 //        };
 //
 //        /* ========================================================================== *
-//         *  relaxUntilConverged – returns true on success                             *
+//         *  relaxUntilConverged Â–Â returns true on success                             *
 //         * ========================================================================== */
 //        bool System::relaxUntilConverged(double tol /*=1e-6*/, int maxIter /*=3000*/)
 //        {
 //            for (int iter = 0; iter < maxIter; ++iter)
 //            {
 //                /* --------- assemble forces on GPU ---------------------------------- */
-//                Solve_Forces(); // <— every physics module writes into nodeForceX/Y/Z
+//                Solve_Forces(); // <Â— every physics module writes into nodeForceX/Y/Z
 //
 //                /* --------- compute max |F| using transform_reduce ------------------ */
 //                auto first = thrust::make_zip_iterator(
@@ -2591,7 +2410,7 @@ void System::initializeSystem(HostSetInfoVecs & hostSetInfoVecs)
 //// Constructor for the System class.
 //System::System() {};
 //
-//// Print net force on nodes along a radial line (? ˜ 0) from disc center to boundary
+//// Print net force on nodes along a radial line (? Â˜ 0) from disc center to boundary
 //void System::PrintForce() {
 //    // Copy device forces to host
 //    thrust::host_vector<double> h_fx = coordInfoVecs.nodeForceX;

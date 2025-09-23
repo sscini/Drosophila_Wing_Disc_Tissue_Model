@@ -1,2 +1,0 @@
-/opt/sge/crc/spool/qa-a10-026/job_scripts/2080080: line 10: syntax error near unexpected token `('
-/opt/sge/crc/spool/qa-a10-026/job_scripts/2080080: line 10: `WORK_DIR=$ (pwd)'

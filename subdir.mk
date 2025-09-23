@@ -11,9 +11,9 @@ current_dir := $(shell pwd)
 LIBS:=  -lpugixml -L/$(current_dir)/pugixml/lib64
 #-lgsl -lgslcblas
 
-ILIBS_cuda8 = -I/opt/linux/rocky/8.x/x86_64/pkgs/cuda/11.2/include/
+ILIBS_cuda8 = -I/opt/linux/rocky/8.x/x86_64/pkgs/cuda/12.1/include/
 ILIBS_cuda9 := -I/opt/linux/centos/7.x/x86_64/pkgs/cuda/9.1/include/
-ILIBS_cuda11_2 := -I/opt/linux/rocky/8.x/x86_64/pkgs/cuda/11.2/include/
+ILIBS_cuda11_2 := -I/opt/linux/rocky/8.x/x86_64/pkgs/cuda/12.1/include/
 
 # Add inputs and outputs from these tool invocations to the build variables 
 CPP_SRCS += \

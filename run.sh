@@ -12,12 +12,10 @@ setenv LD_LIBRARY_PATH "${LD_LIBRARY_PATH}:/afs/crc.nd.edu/x86_64_linux/m/matlab
 #$ -t 1       #specify number of data input files
 
 
-set data = ( DataStructures/Data_Structure.xml )
+set data = ( Data_Structures/Data_Structure.xml )
 
 module purge
-module load gcc/12.2.0
-module load cuda/12.8
-
+module load cuda
 
 echo -n "It is currently: ";date
 echo -n "I am logged on as nsher012";whoami

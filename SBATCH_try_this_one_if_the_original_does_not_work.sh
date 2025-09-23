@@ -10,8 +10,4 @@
 #SBATCH --job-name="dsp_test_218_nodes_"
 #SBATCH -p gpu # This is the default partition, you can use any of the following; intel, batch, highmem, gpu
 
-module load singularity
-export SINGULARITY_NV=1
-module load centos
-
-centos.sh "module load extra; module load GCC/8.3.0; module load cuda/11.2; ./tissue-model -dt=0.01 Data_Structures/Data_Structure.xml"
+module load cuda; ./tissue-model -dt=0.01 Data_Structures/Data_Structure.xml

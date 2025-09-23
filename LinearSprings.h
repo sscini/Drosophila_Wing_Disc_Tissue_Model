@@ -173,12 +173,12 @@ struct LinearSpringFunctor {
               double magnitude = -(what_spring_constant) * (length_current - length_zero);
       
               idKey[place] = edgeL;
-              printf("what_spring_constant = %f\n", what_spring_constant);
-              printf("magnitude = %f\n", magnitude);
-              printf("Linear Springs length_current = %f\n", length_current);
-              printf("xLoc_LR = %f\n", xLoc_LR);
-              printf("yLoc_LR = %f\n", yLoc_LR);
-              printf("zLoc_LR = %f\n", zLoc_LR);
+             // printf("what_spring_constant = %f\n", what_spring_constant);
+             // printf("magnitude = %f\n", magnitude);
+             // printf("Linear Springs length_current = %f\n", length_current);
+             // printf("xLoc_LR = %f\n", xLoc_LR);
+             // printf("yLoc_LR = %f\n", yLoc_LR);
+             // printf("zLoc_LR = %f\n", zLoc_LR);
               
               //issue here writing to vectors with force????
               forceXAddr[place] = magnitude * (xLoc_LR/length_current);

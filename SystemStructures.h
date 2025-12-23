@@ -622,7 +622,7 @@ inline CVec3 CVec3_plus(CVec3 v1, CVec3 v2) {
         thrust::get<1>(v1) + thrust::get<1>(v2),
         thrust::get<2>(v1) + thrust::get<2>(v2)
     );
-};
+}; 
 
 // Inline function for element-wise addition of a constant to a CVec3 tuple.
 __host__ __device__

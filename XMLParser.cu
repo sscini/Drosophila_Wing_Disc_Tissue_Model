@@ -141,66 +141,120 @@ bool XMLParser::parseFile(const std::string& filename, SystemBuilder& builder) {
     
     // ---------------------------
     // Process <nodes> section
-    // This will be divided into apical and basal inputs.
-    
-    // Check if this is a double-layer model (using <apicalNodes> and <basalNodes>) or single layer (<nodes>)
+        
+        // ---------- Count nodes per group BEFORE building ----------
     pugi::xml_node apicalNodes = root.child("apicalNodes");
+    pugi::xml_node bodyNodes   = root.child("bodyNodes");
+    pugi::xml_node basalNodes  = root.child("basalNodes");
+    
+    auto countChildren = [](pugi::xml_node parent, const char* tag) {
+        int c = 0;
+        if (parent) for (pugi::xml_node n = parent.child(tag); n; n = n.next_sibling(tag)) ++c;
+        return c;
+    };
+    
+    const int A = countChildren(apicalNodes, "node"); // apical count per layer
+    const int B = countChildren(bodyNodes,   "node"); // all body nodes (across all body sublayers)
+    const int C = countChildren(basalNodes,  "node"); // basal count per layer
+    
+    if (A == 0) {
+        std::cerr << "XMLParser: No <apicalNodes> or empty." << std::endl;
+        return false;
+    }
+    if (C != 0 && C != A) {
+        std::cerr << "XMLParser: Basal nodes (" << C << ") must equal apical nodes (" << A << ")." << std::endl;
+        return false;
+    }
+    
+    const int totalNodes = A + B + C;
+    
+    // Your formula: body layer count from apical count
+    int N_body = 0;
+    if (B > 0) {
+        if (B % A != 0) {
+            std::cerr << "XMLParser: bodyNodes (" << B << ") not a multiple of apicalNodes (" << A << ")." << std::endl;
+            return false;
+        }
+        N_body = B / A;  // == (totalNodes - 2*A)/A as you specified
+    }
+    const int N_layers = N_body + 2; // Basal..Body..Apical
+    
+    std::cout << "[Layers] A=" << A << " B=" << B << " C=" << C
+              << " -> N_body=" << N_body << " total layers=" << N_layers << std::endl;
+    
+    // Helper: map a 1-based global node id to its layer index under the new convention.
+    // Ordering is assumed Apical [1..A], then N_body blocks of A nodes, then Basal [last A].
+    auto layerOfNode1Based = [A, N_body, totalNodes](unsigned gid) -> int {
+        // Safety
+        if (gid == 0 || (int)gid > totalNodes) return -1;
+    
+        const int apicalStart = 1;
+        const int apicalEnd   = A;
+        const int bodyStart   = A + 1;
+        const int bodyEnd     = A + N_body * A;
+        const int basalStart  = bodyEnd + 1;
+        const int basalEnd    = bodyEnd + A;
+    
+        if ((int)gid >= apicalStart && (int)gid <= apicalEnd) {
+            return N_body + 1;         // Apical
+        } else if ((int)gid >= basalStart && (int)gid <= basalEnd) {
+            return 0;                  // Basal
+        } else if ((int)gid >= bodyStart && (int)gid <= bodyEnd) {
+            // Which body sublayer? 1..N_body
+            int offset = (int)gid - bodyStart;       // 0-based into body block
+            return (offset / A) + 1;                 // Body layer index (1..N_body)
+        }
+        return -1;
+    };
+    
+    // Small helper for coordinates parsing
+    auto parseXYZ = [](const char* text, double& x, double& y, double& z) -> bool {
+        return 3 == std::sscanf(text, "%lf %lf %lf", &x, &y, &z);
+    };
+    // ---------- Build nodes with correct layer flags ----------
     if (apicalNodes) {
-        // Double-layered model
         for (pugi::xml_node node = apicalNodes.child("node"); node; node = node.next_sibling("node")) {
             double x, y, z;
-            int layerflag = 1;
-            const char* text = node.text().as_string();
-            if (3 != sscanf(text, "%lf %lf %lf", &x, &y, &z)) {
-                std::cerr << "XMLParser: parse apical node error" << std::endl;
-                return false;
+            if (!parseXYZ(node.text().as_string(), x, y, z)) {
+                std::cerr << "XMLParser: parse apical node error" << std::endl; return false;
             }
-            // Assume SystemBuilder has an addApicalNode method.
             builder.addNode(x, y, z);
-            builder.addLayerFlag_node(layerflag);
+            builder.addLayerFlag_node(N_body + 1); // Apical layer = N_body+1
         }
         std::cout << "Apical nodes parsed successfully." << std::endl;
-        
-        pugi::xml_node bodyNodes = root.child("bodyNodes");
-        if (bodyNodes) {
-            for (pugi::xml_node node = bodyNodes.child("node"); node; node = node.next_sibling("node")) {
-                double x, y, z;
-                int layerflag = 0;
-                const char* text = node.text().as_string();
-                if (3 != sscanf(text, "%lf %lf %lf", &x, &y, &z)) {
-                    std::cerr << "XMLParser: parse body node error" << std::endl;
-                    return false;
-                }
-                // Assume SystemBuilder has an addBodyNode method.
-                builder.addNode(x, y, z);
-                builder.addLayerFlag_node(layerflag);
+    }
+    
+    if (bodyNodes) {
+        int idxWithinBody = 0; // how many body nodes seen
+        for (pugi::xml_node node = bodyNodes.child("node"); node; node = node.next_sibling("node"), ++idxWithinBody) {
+            double x, y, z;
+            if (!parseXYZ(node.text().as_string(), x, y, z)) {
+                std::cerr << "XMLParser: parse body node error" << std::endl; return false;
             }
-            std::cout << "Body nodes parsed successfully." << std::endl;
-        } else {
-            std::cerr << "XMLParser: No <bodyNodes> found in double-layered model." << std::endl;
-            return false;
+            // Body sublayer index: 1..N_body
+            int bodyLayer = (idxWithinBody / A) + 1;
+            builder.addNode(x, y, z);
+            builder.addLayerFlag_node(bodyLayer);
         }
-        
-        pugi::xml_node basalNodes = root.child("basalNodes");
-        if (basalNodes) {
-            for (pugi::xml_node node = basalNodes.child("node"); node; node = node.next_sibling("node")) {
-                double x, y, z;
-                int layerflag = -1;
-                const char* text = node.text().as_string();
-                if (3 != sscanf(text, "%lf %lf %lf", &x, &y, &z)) {
-                    std::cerr << "XMLParser: parse basal node error" << std::endl;
-                    return false;
-                }
-                // Assume SystemBuilder has an addBasalNode method.
-                builder.addNode(x, y, z);
-                builder.addLayerFlag_node(layerflag);
+        std::cout << "Body nodes parsed successfully." << std::endl;
+    } else if (B > 0) {
+        std::cerr << "XMLParser: Declared body nodes implied by counts, but <bodyNodes> missing." << std::endl;
+        return false;
+    }
+    
+    if (basalNodes) {
+        for (pugi::xml_node node = basalNodes.child("node"); node; node = node.next_sibling("node")) {
+            double x, y, z;
+            if (!parseXYZ(node.text().as_string(), x, y, z)) {
+                std::cerr << "XMLParser: parse basal node error" << std::endl; return false;
             }
-            std::cout << "Basal nodes parsed successfully." << std::endl;
-        } else {
-            std::cerr << "XMLParser: No <basalNodes> found in double-layered model." << std::endl;
-            return false;
+            builder.addNode(x, y, z);
+            builder.addLayerFlag_node(0); // Basal
         }
-    } else {
+        std::cout << "Basal nodes parsed successfully." << std::endl;
+    }
+
+     else {
         // Single-layer model. Made layerflag 1 because the strain calculations all take place within the upperhem. 
         pugi::xml_node nodes = root.child("nodes");
         if (nodes) {
@@ -222,94 +276,67 @@ bool XMLParser::parseFile(const std::string& filename, SystemBuilder& builder) {
     
     // ---------------------------
     // Process <edgeinfos> section
-    // Everything below here will have apical, basal and vertical parts. 
+    // Everything below here will have apical, body, basal and vertical parts. 
+    auto addEdgeWithLayer = [&](unsigned from1, unsigned to1, double* rest) {
+        // from1, to1 are 1-based in the XML; builder uses 0-based
+        const int L1 = layerOfNode1Based(from1);
+        const int L2 = layerOfNode1Based(to1);
+        int edgeLayer = (L1 == L2 ? L1 : -1); // vertical if crossing layers
     
-    pugi::xml_node apical_edgeinfos = root.child("apical_edgeinfos");
-    if (apical_edgeinfos) {
+        if (rest) builder.addEdge(from1 - 1, to1 - 1, *rest);
+        else      builder.addEdge(from1 - 1, to1 - 1);
+        builder.addLayerFlag_edge(edgeLayer);
+    };
+    
+    // ---------- Apical edgeinfos ----------
+    if (pugi::xml_node apical_edgeinfos = root.child("apical_edgeinfos")) {
         for (pugi::xml_node edge = apical_edgeinfos.child("edgeinfo"); edge; edge = edge.next_sibling("edgeinfo")) {
-            unsigned int from, to;
-            double restLength;
-            int layerflag = 1;
-            int count = sscanf(edge.text().as_string(), "%u %u %lf", &from, &to, &restLength);
-            if (count == 3) {
-                builder.addEdge(from - 1, to - 1, restLength);
-                builder.addLayerFlag_edge(layerflag);
-            } else if (count == 2) {
-                builder.addEdge(from - 1, to - 1);
-                builder.addLayerFlag_edge(layerflag);
-            } else {
-                std::cerr << "XMLParser: parse apical edge error" << std::endl;
-                return false;
-            }
+            unsigned int from, to; double rl;
+            int n = std::sscanf(edge.text().as_string(), "%u %u %lf", &from, &to, &rl);
+            if (n == 3) addEdgeWithLayer(from, to, &rl);
+            else if (n == 2) addEdgeWithLayer(from, to, nullptr);
+            else { std::cerr << "XMLParser: parse apical edge error\n"; return false; }
         }
         std::cout << "Apical Edges parsed successfully." << std::endl;
     }
-
-    pugi::xml_node body_edgeinfos = root.child("body_edgeinfos");
-    if (body_edgeinfos) {
+    
+    // ---------- Body edgeinfos (may include edges for multiple body sublayers) ----------
+    if (pugi::xml_node body_edgeinfos = root.child("body_edgeinfos")) {
         for (pugi::xml_node edge = body_edgeinfos.child("edgeinfo"); edge; edge = edge.next_sibling("edgeinfo")) {
-            unsigned int from, to;
-            double restLength;
-            int layerflag = 0;
-            int count = sscanf(edge.text().as_string(), "%u %u %lf", &from, &to, &restLength);
-            if (count == 3) {
-                builder.addEdge(from - 1, to - 1, restLength);
-                builder.addLayerFlag_edge(layerflag);
-            } else if (count == 2) {
-                builder.addEdge(from - 1, to - 1);
-                builder.addLayerFlag_edge(layerflag);
-            } else {
-                std::cerr << "XMLParser: parse body edge error" << std::endl;
-                return false;
-            }
+            unsigned int from, to; double rl;
+            int n = std::sscanf(edge.text().as_string(), "%u %u %lf", &from, &to, &rl);
+            if (n == 3) addEdgeWithLayer(from, to, &rl);
+            else if (n == 2) addEdgeWithLayer(from, to, nullptr);
+            else { std::cerr << "XMLParser: parse body edge error\n"; return false; }
         }
         std::cout << "Body Edges parsed successfully." << std::endl;
     }
     
-    pugi::xml_node basal_edgeinfos = root.child("basal_edgeinfos");
-    if (basal_edgeinfos) {
+    // ---------- Basal edgeinfos ----------
+    if (pugi::xml_node basal_edgeinfos = root.child("basal_edgeinfos")) {
         for (pugi::xml_node edge = basal_edgeinfos.child("edgeinfo"); edge; edge = edge.next_sibling("edgeinfo")) {
-            unsigned int from, to;
-            double restLength;
-            int layerflag = -1;
-            int count = sscanf(edge.text().as_string(), "%u %u %lf", &from, &to, &restLength);
-            if (count == 3) {
-                builder.addEdge(from - 1, to - 1, restLength);
-                builder.addLayerFlag_edge(layerflag);
-            } else if (count == 2) {
-                builder.addEdge(from - 1, to - 1);
-                builder.addLayerFlag_edge(layerflag);
-            } else {
-                std::cerr << "XMLParser: parse basal edge error" << std::endl;
-                return false;
-            }
+            unsigned int from, to; double rl;
+            int n = std::sscanf(edge.text().as_string(), "%u %u %lf", &from, &to, &rl);
+            if (n == 3) addEdgeWithLayer(from, to, &rl);
+            else if (n == 2) addEdgeWithLayer(from, to, nullptr);
+            else { std::cerr << "XMLParser: parse basal edge error\n"; return false; }
         }
         std::cout << "Basal Edges parsed successfully." << std::endl;
     }
     
-    pugi::xml_node vertical_edgeinfos = root.child("vertical_edgeinfos");
-    if (vertical_edgeinfos) {
+    // ---------- Vertical edgeinfos (explicit vertical list gets layer -1) ----------
+    if (pugi::xml_node vertical_edgeinfos = root.child("vertical_edgeinfos")) {
         for (pugi::xml_node edge = vertical_edgeinfos.child("edgeinfo"); edge; edge = edge.next_sibling("edgeinfo")) {
-            unsigned int from, to;
-            double restLength;
-            int layerflag = 2;
-            int count = sscanf(edge.text().as_string(),"%u %u %lf",&from,&to,&restLength);
-            if (count == 3) {
-                builder.addEdge(from - 1, to - 1, restLength);
-                builder.addLayerFlag_edge(layerflag);
-            } else if (count == 2) {
-               //builder.addEdge(from -1, to -1);
-              // std::cout<< "from = "<< from -1<< " to = "<<to -1 <<std::endl; 
-                builder.addEdge(from - 1, to - 1);
-                builder.addLayerFlag_edge(layerflag);
-            } else {
-                std::cerr << "XMLParser: parse vertical edge error" << std::endl;
-                return false;
-            }
+            unsigned int from, to; double rl;
+            int n = std::sscanf(edge.text().as_string(), "%u %u %lf", &from, &to, &rl);
+            int vertical = -1;
+            if (n == 3) { builder.addEdge(from - 1, to - 1, rl); builder.addLayerFlag_edge(vertical); }
+            else if (n == 2) { builder.addEdge(from - 1, to - 1); builder.addLayerFlag_edge(vertical); }
+            else { std::cerr << "XMLParser: parse vertical edge error\n"; return false; }
         }
         std::cout << "Vertical Edges parsed successfully." << std::endl;
     }
-    
+
     else{
         pugi::xml_node edgeinfos = root.child("edgeinfos");
         if (edgeinfos) {

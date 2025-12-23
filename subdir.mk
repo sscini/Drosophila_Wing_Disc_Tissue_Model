@@ -17,11 +17,9 @@ ILIBS_cuda11_2 := -I/opt/linux/rocky/8.x/x86_64/pkgs/cuda/12.1/include/
 
 # Add inputs and outputs from these tool invocations to the build variables 
 CPP_SRCS += \
-../AreaTriangles.cu \
 ../LinearSprings.cu \
 ../VolumeComp.cu \
 ../VolumeSprings.cu \
-../LineTensionSprings.cu \
 ../NodeAdvance.cu \
 ../System.cu \
 ../Utilities.cu \
@@ -33,11 +31,9 @@ CPP_SRCS += \
 
 # this is a variable
 OBJS += \
-./AreaTriangles.o \
 ./LinearSprings.o \
 ./VolumeComp.o \
 ./VolumeSprings.o \
-./LineTensionSprings.o \
 ./NodeAdvance.o \
 ./System.o \
 ./Utilities.o \
@@ -48,11 +44,9 @@ OBJS += \
 
 
 CPP_DEPS += \
-./AreaTriangles.d \
 ./LinearSprings.d \
 ./VolumeComp.d \
 ./VolumeSprings.d \
-./LineTensionSprings.d \
 ./NodeAdvance.d \
 ./System.d \
 ./Utilities.d \

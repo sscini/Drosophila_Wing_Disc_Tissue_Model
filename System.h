@@ -23,6 +23,9 @@
 #include <thrust/execution_policy.h>
 #include <thrust/pair.h>
 #include <stdint.h>
+#include <thrust/host_vector.h>
+#include <thrust/fill.h>
+#include <thrust/sequence.h>
 
 using CVec3   = thrust::tuple<double,double,double>;    // 3-component vector
 using Mat_3x3 = thrust::tuple<CVec3,CVec3,CVec3>;       // 3×3 matrix (row-major)
@@ -81,6 +84,18 @@ struct CapsidInfoVecs {
   	int num_connections=0;// Number of connections between capsid nodes.
 
   
+};
+
+struct PrismInfoVecs {
+    // for each basic prism element P we store its 6 node indices. 
+    thrust::device_vector<int> prism2Node_1; // P1 -> The center point for all node
+    thrust::device_vector<int> prism2Node_2; // P2
+    thrust::device_vector<int> prism2Node_3; // P3
+    thrust::device_vector<int> prism2Node_4; // P4
+    thrust::device_vector<int> prism2Node_5; // P5
+    thrust::device_vector<int> prism2Node_6; // P6
+    
+    int num_prisms;
 };
 
 // Struct to store node location, velocity, and force information.
@@ -394,7 +409,9 @@ struct GeneralParams{
   bool enableBendAnisotropy   = true;  // spontaneous-curvature coupling
   double thickness        = 0.10;    // t  in  C0 = (lambda ff – lambda rr)/t
   double tol;// = 1e-4;//tol of 1e-5 and 1e-6 are too low. The positions begin to oscillate and there is no convergence. So we stick to 1e-4. I'm now going to 1e-9. This works but takes too long so I am submitting a different sim with 1e-4
-
+  
+  int num_layers = 0;
+  double theta_DV = 0.1002;
 	std::vector<int> triangle_undergoing_growth;
 	double chemdiff_time_step_size;
 	int current_total_sim_step;
@@ -431,6 +448,7 @@ struct GeneralParams{
 	thrust::device_vector<double> angle_per_edge;
   thrust::device_vector<int> nodes_in_DV;
   thrust::device_vector<int> edges_in_DV;
+  
  
 	double centerX = 0.0;
 	double centerY = 0.0;
@@ -443,7 +461,7 @@ struct GeneralParams{
 	double current_total_volume;
 	double true_current_total_volume;
 	double eq_total_volume;
-	double volume_spring_constant;
+	double volume_spring_constant = 5.0;
 	double volume_energy;
 	double eq_total_boundary_length;
 	double line_tension_energy;
@@ -472,7 +490,36 @@ struct GeneralParams{
   //double epsilon_r_center;
   //double epsilon_r = -0.12406004; // change this name to Isotropic strain
   //double epsilon_t = 1.20789496;// change this name to Anisotropic strain
+  
+  double DV_ax, DV_ay, DV_az, DV_bx, DV_by, DV_bz;
+  double ODx, ODy, ODz, OVx, OVy, OVz;
+ 
+  thrust::device_vector<double> lambda_iso_center_outDV_v;
+
     
+  thrust::device_vector<double> lambda_iso_edge_outDV_v;
+
+  
+  thrust::device_vector<double> lambda_aniso_center_outDV_v;
+
+  
+  thrust::device_vector<double> lambda_aniso_edge_outDV_v;
+  
+  
+  
+  // inDV
+  thrust::device_vector<double> lambda_iso_center_inDV_v;
+
+  
+  thrust::device_vector<double> lambda_iso_edge_inDV_v;
+
+  
+  thrust::device_vector<double> lambda_aniso_center_inDV_v;
+
+  
+  thrust::device_vector<double> lambda_aniso_edge_inDV_v;
+
+
   // Strain field (lambda) values in the outDV region at different stages of eversion.
   double lambda_iso_center_outDV;// = -0.12406004; //   wl3-0hAPF (-0.12406004) | wl3-2hAPF (-0.29431527) | wl3-4hAPF (-0.20050286)
   double lambda_iso_edge_outDV;// = 1.20789496; //      wl3-0hAPF ( 1.20789496) | wl3-2hAPF ( 1.44256030) | wl3-4hAPF ( 1.43479468)
@@ -485,8 +532,9 @@ struct GeneralParams{
   double lambda_aniso_center_inDV;// = 1.0; //  wl3-0hAPF (-0.12904887) | wl3-2hAPF (-0.21271504) | wl3-4hAPF (-0.30567972)
   double lambda_aniso_edge_inDV;// = 1.0; //    wl3-0hAPF ( 1.03128453) | wl3-2hAPF ( 1.24178074) | wl3-4hAPF ( 1.29370391)
   
-  double disc_radius = 77.66; // manually input radius for each of the discs you're computing. 
-  
+  double disc_radius;//= 77.66; // manually input radius for each of the discs you're computing. 
+  double sphere_R;
+  double theta_max=0.87226;
   thrust::device_vector<double> rho;
   
  // double disc_radius;
@@ -521,6 +569,7 @@ public:
 	DomainParams domainParams;
 	AuxVecs auxVecs;
 	CoordInfoVecs coordInfoVecs;
+  PrismInfoVecs prismInfoVecs;
 
 	CapsidInfoVecs capsidInfoVecs;
 	LinearSpringInfoVecs linearSpringInfoVecs;

@@ -408,20 +408,20 @@ void System::Solve_Forces()
 //      		generalParams,
 //      		auxVecs);
 
-//        ComputeVolume(
-//          generalParams,
-//          coordInfoVecs,
-//          linearSpringInfoVecs,
-//          ljInfoVecs,
-//          prismInfoVecs);
-//    // Compute forces and energy due to volume springs. //(nav - commenting these out for now for flat surface 5/29/24) Nav had uncommented but she's bringing the comment back because testing out Active shape mesh 02/27/25
-//      	ComputeVolumeSprings(
-//      		coordInfoVecs,
-//          linearSpringInfoVecs,
-//          capsidInfoVecs,
-//          generalParams,
-//          //auxVecs,
-//          prismInfoVecs);
+        ComputeVolume(
+          generalParams,
+          coordInfoVecs,
+          linearSpringInfoVecs,
+          ljInfoVecs,
+          prismInfoVecs);
+    // Compute forces and energy due to volume springs. //(nav - commenting these out for now for flat surface 5/29/24) Nav had uncommented but she's bringing the comment back because testing out Active shape mesh 02/27/25
+      	ComputeVolumeSprings(
+      		coordInfoVecs,
+          linearSpringInfoVecs,
+          capsidInfoVecs,
+          generalParams,
+          //auxVecs,
+          prismInfoVecs);
     
     // Now print forces along the radial line
    // PrintForce();
@@ -439,7 +439,7 @@ void System::solveSystem()
 
     // Set timestep for overdamped dynamics
     // Smaller timestep = more stable but slower convergence
-    generalParams.dt = 0.0001;  // Reduced for stability
+    generalParams.dt = 0.000000001;  // Reduced for stability
 
     // Compute initial center (geometric mean of all nodes)
     double cx = 0.0, cy = 0.0, cz = 0.0;

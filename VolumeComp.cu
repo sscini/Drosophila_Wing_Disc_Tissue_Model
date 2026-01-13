@@ -107,9 +107,9 @@ void ComputeVolume(
     // Keep only as diagnostic (if you keep it at all)
     generalParams.true_current_total_volume = V_abs;
     
-    std::cout << "ComputeVolume: prisms=" << P
-              << ", V_signed=" << V_signed
-              << ", V_abs(sum|tets|)=" << V_abs
-              << ", min6V_tet =" << min6V_tet  // if this value is negative then smth is being inverted. Your volume forces are either garbage or NaNs. 
-              << " (prism " << min6V_tet_prism << ")\n";
+//    std::cout << "ComputeVolume: prisms=" << P
+//              << ", V_signed=" << V_signed
+//              << ", V_abs(sum|tets|)=" << V_abs
+//              << ", min6V_tet =" << min6V_tet  // if this value is negative then smth is being inverted. Your volume forces are either garbage or NaNs. 
+//              << " (prism " << min6V_tet_prism << ")\n";
 }

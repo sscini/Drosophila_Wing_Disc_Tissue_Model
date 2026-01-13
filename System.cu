@@ -27,6 +27,265 @@
 #include <thrust/tuple.h>
 #include "gradientRelax.h"
 
+#include <thrust/host_vector.h>
+#include <iostream>
+#include <algorithm>
+
+static inline double sixV_tet_host(
+    const std::vector<double>& X,
+    const std::vector<double>& Y,
+    const std::vector<double>& Z,
+    int i, int j, int k, int l)
+{
+    const double ux = X[i] - X[l];
+    const double uy = Y[i] - Y[l];
+    const double uz = Z[i] - Z[l];
+
+    const double vx = X[j] - X[l];
+    const double vy = Y[j] - Y[l];
+    const double vz = Z[j] - Z[l];
+
+    const double wx = X[k] - X[l];
+    const double wy = Y[k] - Y[l];
+    const double wz = Z[k] - Z[l];
+
+    const double cx = vy * wz - vz * wy;
+    const double cy = vz * wx - vx * wz;
+    const double cz = vx * wy - vy * wx;
+
+    return ux * cx + uy * cy + uz * cz; // 6 * V_signed
+}
+
+static void BuildPrismsFromLayerFlags(
+    const GeneralParams& gp,
+    const CoordInfoVecs& coord,
+    PrismInfoVecs& prism)
+{
+    thrust::host_vector<int> hLayer = gp.nodes_in_upperhem;
+    thrust::host_vector<int> t1 = coord.triangles2Nodes_1;
+    thrust::host_vector<int> t2 = coord.triangles2Nodes_2;
+    thrust::host_vector<int> t3 = coord.triangles2Nodes_3;
+
+    const int Ntot = (int)hLayer.size();
+    if (Ntot == 0) {
+        std::cout << "ERROR: nodes_in_upperhem is empty.\n";
+        prism.num_prisms = 0;
+        return;
+    }
+
+    // ---- Copy coordinates to host so we can orient prisms consistently ----
+    const int Nnodes = (int)coord.nodeLocX.size();
+    std::vector<double> X(Nnodes), Y(Nnodes), Z(Nnodes);
+    for (int i = 0; i < Nnodes; ++i) {
+        X[i] = coord.nodeLocX[i];
+        Y[i] = coord.nodeLocY[i];
+        Z[i] = coord.nodeLocZ[i];
+    }
+
+    // Determine actual sheet layers present from flags (ignoring -1 vertical)
+    int maxFlag = -1;
+    for (int i = 0; i < Ntot; ++i) {
+        if (hLayer[i] >= 0) maxFlag = std::max(maxFlag, hLayer[i]);
+    }
+    if (maxFlag < 1) {
+        std::cout << "ERROR: Need at least two layers (flags 0 and 1). maxFlag="
+                  << maxFlag << "\n";
+        prism.num_prisms = 0;
+        return;
+    }
+
+    // layers[ell] = global node ids in that layer, in global-id order
+    std::vector<std::vector<int>> layers(maxFlag + 1);
+    for (int i = 0; i < Ntot; ++i) {
+        int ell = hLayer[i];
+        if (ell < 0) continue;  // ignore vertical
+        if (ell > maxFlag) continue;
+        layers[ell].push_back(i);
+    }
+
+    // Build reverse map: global node -> local index within its layer
+    std::vector<int> localIndex(Ntot, -1);
+    for (int ell = 0; ell <= maxFlag; ++ell) {
+        for (int k = 0; k < (int)layers[ell].size(); ++k) {
+            localIndex[layers[ell][k]] = k;
+        }
+    }
+
+    // Require adjacent layers to have same node count for index-based correspondence
+    for (int ell = 1; ell <= maxFlag; ++ell) {
+        if (layers[ell].empty() || layers[ell-1].empty()) {
+            std::cout << "ERROR: Layer " << ell << " or " << (ell-1)
+                      << " is empty. Cannot build prisms.\n";
+            prism.num_prisms = 0;
+            return;
+        }
+        if (layers[ell].size() != layers[ell-1].size()) {
+            std::cout << "ERROR: Layer " << ell << " has " << layers[ell].size()
+                      << " nodes but layer " << (ell-1) << " has " << layers[ell-1].size()
+                      << ". Cannot build prisms by index correspondence.\n";
+            prism.num_prisms = 0;
+            return;
+        }
+    }
+
+    // Build nearest-neighbor map from layer ell to ell-1
+    std::vector<int> downMap(Ntot, -1);
+    
+    for (int ell = 1; ell <= maxFlag; ++ell) {
+        const auto& upper = layers[ell];
+        const auto& lower = layers[ell-1];
+    
+        for (int uu : upper) {
+            double best = 1e300;
+            int bestNode = -1;
+    
+            // nearest in XY is usually what you want for stacked sheets
+            const double x = X[uu], y = Y[uu];
+    
+            for (int ll : lower) {
+                const double dx = X[ll] - x;
+                const double dy = Y[ll] - y;
+                const double d2 = dx*dx + dy*dy;
+                if (d2 < best) { best = d2; bestNode = ll; }
+            }
+            downMap[uu] = bestNode;
+        }
+    }
+    
+    auto downNode = [&](int node)->int {
+        int ell = hLayer[node];
+        if (ell <= 0) return -1;
+        return downMap[node];
+    };
+
+    std::vector<int> P1, P2, P3, P4, P5, P6;
+    const int T = coord.num_triangles;
+    P1.reserve(T); P2.reserve(T); P3.reserve(T);
+    P4.reserve(T); P5.reserve(T); P6.reserve(T);
+
+    int flipped = 0;
+    int degenerate = 0;
+
+    for (int ti = 0; ti < T; ++ti) {
+        int a = t1[ti], b = t2[ti], c = t3[ti];
+        if (a < 0 || b < 0 || c < 0) continue;
+
+        int la = hLayer[a], lb = hLayer[b], lc = hLayer[c];
+
+        // only triangles fully inside one sheet layer
+        if (la < 1) continue;                 // layer 0 has no lower neighbor
+        if (la != lb || la != lc) continue;
+
+        int A = downNode(a);
+        int B = downNode(b);
+        int C = downNode(c);
+        if (A < 0 || B < 0 || C < 0) continue;
+
+        // ----- Enforce consistent prism orientation using SAME 3-tet decomposition -----
+        // Your ComputeVolume uses:
+        // s1 = sixV_tet(P2,P3,P4,P1)  -> (b,c,A,a)
+        // s2 = sixV_tet(P2,P4,P6,P1)  -> (b,A,C,a)
+        // s3 = sixV_tet(P4,P5,P6,P1)  -> (A,B,C,a)
+        double s1 = sixV_tet_host(X,Y,Z, b, c, A, a);
+        double s2 = sixV_tet_host(X,Y,Z, b, A, C, a);
+        double s3 = sixV_tet_host(X,Y,Z, A, B, C, a);
+        double sum6V = s1 + s2 + s3;
+
+        // If prism is nearly degenerate, skip it (prevents huge gradients / NaNs)
+        if (std::fabs(sum6V) < 1e-12) {
+            degenerate++;
+            continue;
+        }
+
+        // Make ALL prisms have the same sign (choose positive here)
+        if (sum6V < 0.0) {
+            std::swap(b, c);
+            std::swap(B, C);
+            flipped++;
+        }
+
+        P1.push_back(a); P2.push_back(b); P3.push_back(c);
+        P4.push_back(A); P5.push_back(B); P6.push_back(C);
+    }
+
+    prism.num_prisms = (int)P1.size();
+    prism.P1 = P1; prism.P2 = P2; prism.P3 = P3;
+    prism.P4 = P4; prism.P5 = P5; prism.P6 = P6;
+
+    std::cout << "Built prisms = " << prism.num_prisms
+              << " using layer flags (maxFlag=" << maxFlag << "). "
+              << "flipped=" << flipped << ", skipped_degenerate=" << degenerate
+              << "\n";
+}
+
+static inline int clampN(int n, int maxn) { return std::min(std::max(n, 0), maxn); }
+
+void DebugPrintMeshConnectivity(System& sys,
+                                int maxTriPrint  = 50,
+                                int maxEdgePrint = 100,
+                                bool printAll    = false) {
+    auto& coord  = sys.coordInfoVecs;
+    auto& gp     = sys.generalParams;
+    auto& spring = sys.linearSpringInfoVecs;
+
+    // -------- triangles (elems) ----------
+    const int T = coord.num_triangles;
+    thrust::host_vector<int> h_t1 = coord.triangles2Nodes_1;
+    thrust::host_vector<int> h_t2 = coord.triangles2Nodes_2;
+    thrust::host_vector<int> h_t3 = coord.triangles2Nodes_3;
+
+    std::cout << "\n===== TRIANGLES (" << T << ") =====\n";
+    int triN = printAll ? T : clampN(maxTriPrint, T);
+    for (int t = 0; t < triN; ++t) {
+        std::cout << "T" << t << ": " << h_t1[t] << " " << h_t2[t] << " " << h_t3[t] << "\n";
+    }
+
+    // -------- edges (edgeinfos) ----------
+    const int E = coord.num_edges;
+    thrust::host_vector<int> h_e1 = coord.edges2Nodes_1;
+    thrust::host_vector<int> h_e2 = coord.edges2Nodes_2;
+
+    // Edge layer flags (you store these in generalParams.edges_in_upperhem)
+    thrust::host_vector<int> h_edgeLayer;
+    if ((int)gp.edges_in_upperhem.size() == E) {
+        h_edgeLayer = gp.edges_in_upperhem;
+    }
+
+    // Node layer flags (optional, useful to sanity-check vertical edges)
+    thrust::host_vector<int> h_nodeLayer;
+    if ((int)gp.nodes_in_upperhem.size() == (int)coord.nodeLocX.size()) {
+        h_nodeLayer = gp.nodes_in_upperhem;
+    }
+
+    // Edge rest length (if present)
+    thrust::host_vector<double> h_rest;
+    bool hasRest = ((int)spring.edge_rest_length.size() == E);
+    if (hasRest) h_rest = spring.edge_rest_length;
+
+    std::cout << "\n===== EDGES (" << E << ") =====\n";
+    int edgeN = printAll ? E : clampN(maxEdgePrint, E);
+    for (int e = 0; e < edgeN; ++e) {
+        int a = h_e1[e];
+        int b = h_e2[e];
+
+        std::cout << "E" << e << ": " << a << " " << b;
+
+        if (hasRest) std::cout << "   rest=" << h_rest[e];
+
+        if ((int)h_edgeLayer.size() == E) std::cout << "   edgeLayer=" << h_edgeLayer[e];
+
+        // Bonus: also print node layers so you can spot “vertical” edges instantly
+        if ((int)h_nodeLayer.size() > std::max(a, b)) {
+            std::cout << "   (nodeLayers " << h_nodeLayer[a] << "," << h_nodeLayer[b] << ")";
+        }
+
+        std::cout << "\n";
+    }
+
+    std::cout << std::endl;
+}
+
+
 // somehow the gradient is not being set in my version - Kevin
 
 // Helper function to count elements greater than or equal to zero in a vector.
@@ -36,8 +295,44 @@ int count_bigger(const std::vector<int> &elems)
                          { return c >= 0; });
 }
 
+
 // Constructor for the System class.
 System::System() {};
+
+void System::printEdges() {
+    const auto& n1 = coordInfoVecs.edges2Nodes_1;
+    const auto& n2 = coordInfoVecs.edges2Nodes_2;
+    const auto& rest = linearSpringInfoVecs.edge_rest_length;
+    const auto& layer = generalParams.edges_in_upperhem;
+
+    int E = coordInfoVecs.num_edges;
+    std::cout << "\n===== EDGES (" << E << ") =====\n";
+
+    for (int i = 0; i < E; i++) {
+        std::cout << "E" << i << ": "
+                  << n1[i] << " "
+                  << n2[i] << "   "
+                  << rest[i] << "   "
+                  << layer[i] << "\n";
+    }
+}
+
+void System::printTriangles() {
+    const auto& tri1 = coordInfoVecs.triangles2Nodes_1;
+    const auto& tri2 = coordInfoVecs.triangles2Nodes_2;
+    const auto& tri3 = coordInfoVecs.triangles2Nodes_3;
+
+    int T = coordInfoVecs.num_triangles;
+    std::cout << "\n===== TRIANGLES (" << T << ") =====\n";
+
+    for (int i = 0; i < T; i++) {
+        std::cout << "T" << i << ": "
+                  << tri1[i] << " "
+                  << tri2[i] << " "
+                  << tri3[i] << "\n";
+    }
+}
+
 
 // Print net force on nodes along a radial line (?  0) from disc center to boundary
 void System::PrintForce() {
@@ -113,19 +408,20 @@ void System::Solve_Forces()
 //      		generalParams,
 //      		auxVecs);
 
-        ComputeVolume(
-          generalParams,
-          coordInfoVecs,
-          linearSpringInfoVecs,
-          ljInfoVecs,
-          prismInfoVecs);
-    // Compute forces and energy due to volume springs. //(nav - commenting these out for now for flat surface 5/29/24) Nav had uncommented but she's bringing the comment back because testing out Active shape mesh 02/27/25
-      	ComputeVolumeSprings(
-      		coordInfoVecs,
-          linearSpringInfoVecs,
-          capsidInfoVecs,
-          generalParams,
-          auxVecs);
+//        ComputeVolume(
+//          generalParams,
+//          coordInfoVecs,
+//          linearSpringInfoVecs,
+//          ljInfoVecs,
+//          prismInfoVecs);
+//    // Compute forces and energy due to volume springs. //(nav - commenting these out for now for flat surface 5/29/24) Nav had uncommented but she's bringing the comment back because testing out Active shape mesh 02/27/25
+//      	ComputeVolumeSprings(
+//      		coordInfoVecs,
+//          linearSpringInfoVecs,
+//          capsidInfoVecs,
+//          generalParams,
+//          //auxVecs,
+//          prismInfoVecs);
     
     // Now print forces along the radial line
    // PrintForce();
@@ -134,8 +430,20 @@ void System::Solve_Forces()
 // Function to solve the entire system.
 void System::solveSystem()
 {
+
+    BuildPrismsFromLayerFlags(generalParams, coordInfoVecs, prismInfoVecs);
+
+    
+    //auto sysPtr = builder.createSystem();
+//    DebugPrintMeshConnectivity(*this, 60, 120, false);
+
+    
+  //  printTriangles();
+   // printEdges();
+    
+    
     // 0. Basic timestep
-    generalParams.dt = 0.01;
+    generalParams.dt = 0.001;
 
     // 1. Compute initial center (apical mean)
     double cx = 0, cy = 0, cz = 0;
@@ -150,10 +458,52 @@ void System::solveSystem()
     generalParams.centerY = cy / count;
     generalParams.centerZ = cz / count;
 
+//    // node ordering debugging. 
+//    std::cout << "DEBUG NODES (first 20):\n";
+//    for (int i = 0; i < 20; ++i) {
+//        std::cout << i << ": z=" << coordInfoVecs.nodeLocZ[i] << "\n";
+//    }
+//    
+//    std::cout << "DEBUG NODES (last 20):\n";
+//    int total = coordInfoVecs.nodeLocZ.size();
+//    for (int i = total - 20; i < total; ++i) {
+//        std::cout << i << ": z=" << coordInfoVecs.nodeLocZ[i] << "\n";
+//    }
+//    
+//    std::cout << "DEBUG first 10 triangles:\n";
+//    int tmax = std::min(10, (int)coordInfoVecs.num_triangles);
+//    for (int t = 0; t < tmax; ++t) {
+//        std::cout << "T" << t << ": "
+//                  << coordInfoVecs.triangles2Nodes_1[t] << " "
+//                  << coordInfoVecs.triangles2Nodes_2[t] << " "
+//                  << coordInfoVecs.triangles2Nodes_3[t] << "\n";
+//    }
+//
+//    int Tper = coordInfoVecs.num_triangles / generalParams.num_layers;
+//    std::cout << "\nDEBUG triangles near layer boundary:\n";
+//    std::cout << "Tper = " << Tper << "\n";
+//    for (int t = Tper-5; t < Tper+5; ++t) {
+//        if (t >= 0 && t < coordInfoVecs.num_triangles) {
+//            std::cout << "T" << t << ": "
+//                      << coordInfoVecs.triangles2Nodes_1[t] << " "
+//                      << coordInfoVecs.triangles2Nodes_2[t] << " "
+//                      << coordInfoVecs.triangles2Nodes_3[t] << "\n";
+//        }
+//    }
+    ComputeVolume(
+          generalParams,
+          coordInfoVecs,
+          linearSpringInfoVecs,
+          ljInfoVecs,
+          prismInfoVecs);
+    generalParams.eq_total_volume = generalParams.current_total_volume;
+    std::cout << "Setting eq_total_volume = " << generalParams.eq_total_volume << "\n";
+    
+    
     // 2. Initial force check
     Solve_Forces();
 
-    // 3. Print initial VTK
+    // 3. Print initial VTK 
     storage->print_VTK_File();
 
     // ============================================
@@ -165,28 +515,33 @@ void System::solveSystem()
 
     for (int stage = 0; stage < stages; stage++)
     {
+        
+        
         // -- load lambda values for this stage --
-        generalParams.lambda_iso_center_outDV = generalParams.lambda_iso_center_outDV_v[stage];
-        generalParams.lambda_iso_edge_outDV   = generalParams.lambda_iso_edge_outDV_v[stage];
-        generalParams.lambda_aniso_center_outDV = generalParams.lambda_aniso_center_outDV_v[stage];
-        generalParams.lambda_aniso_edge_outDV   = generalParams.lambda_aniso_edge_outDV_v[stage];
-
-        generalParams.lambda_iso_center_inDV = generalParams.lambda_iso_center_inDV_v[stage];
-        generalParams.lambda_iso_edge_inDV   = generalParams.lambda_iso_edge_inDV_v[stage];
-        generalParams.lambda_aniso_center_inDV = generalParams.lambda_aniso_center_inDV_v[stage];
-        generalParams.lambda_aniso_edge_inDV   = generalParams.lambda_aniso_edge_inDV_v[stage];
+//        generalParams.lambda_iso_center_outDV = generalParams.lambda_iso_center_outDV_v[stage];
+//        generalParams.lambda_iso_edge_outDV   = generalParams.lambda_iso_edge_outDV_v[stage];
+//        generalParams.lambda_aniso_center_outDV = generalParams.lambda_aniso_center_outDV_v[stage];
+//        generalParams.lambda_aniso_edge_outDV   = generalParams.lambda_aniso_edge_outDV_v[stage];
+//
+//        generalParams.lambda_iso_center_inDV = generalParams.lambda_iso_center_inDV_v[stage];
+//        generalParams.lambda_iso_edge_inDV   = generalParams.lambda_iso_edge_inDV_v[stage];
+//        generalParams.lambda_aniso_center_inDV = generalParams.lambda_aniso_center_inDV_v[stage];
+//        generalParams.lambda_aniso_edge_inDV   = generalParams.lambda_aniso_edge_inDV_v[stage];
 
         // Build vertex-level lambda
         LambdaField lambda;
         StrainTensorGPU::buildVertexLambda(generalParams, coordInfoVecs, lambda, frac);
 
         // Update rest lengths (initial_length → final_length)
-        int layerflag = 0;   // 0 = whole tissue
+        int layerflag = 0;   // 0 = basal layer, 
+                             // 1 - N = Body layers,
+                             // N+1 = Apical layer,
+                             // -1 = vertical layer
         StrainTensorGPU::updateEdgeRestLengths(coordInfoVecs, generalParams, lambda, linearSpringInfoVecs, layerflag);
 
         // Relaxation parameters
         generalParams.tol = 1e-5;
-        int Nsteps = 10000;
+        int Nsteps = 100000; // this should be equal to the inverse of tolerance
 
         // ============================================
         //     GRADIENT RELAXATION LOOP
@@ -210,7 +565,7 @@ void System::solveSystem()
                       << " | Mov = " << generalParams.dx 
                       << " | Steps = " << k << std::endl;
 
-            if (iter % 10 == 0)
+            if (iter % 100 == 0)
                 storage->print_VTK_File();
         }
 
@@ -343,6 +698,11 @@ void System::initializeSystem(HostSetInfoVecs & hostSetInfoVecs)
     thrust::fill(coordInfoVecs.nodeForceX.begin(), coordInfoVecs.nodeForceX.end(), 0.0);
     thrust::fill(coordInfoVecs.nodeForceY.begin(), coordInfoVecs.nodeForceY.end(), 0.0);
     thrust::fill(coordInfoVecs.nodeForceZ.begin(), coordInfoVecs.nodeForceZ.end(), 0.0);
+    
+    prismInfoVecs.num_prisms = 0;
+    prismInfoVecs.P1.clear(); prismInfoVecs.P2.clear(); prismInfoVecs.P3.clear();
+    prismInfoVecs.P4.clear(); prismInfoVecs.P5.clear(); prismInfoVecs.P6.clear();
+
     
     // ==================== initialize lambda stage vectors ====================
 
@@ -527,8 +887,8 @@ void System::initializeSystem(HostSetInfoVecs & hostSetInfoVecs)
     // Allocate memory for buckets.
     auxVecs.id_bucket.resize(generalParams.maxNodeCount);
     auxVecs.id_value.resize(generalParams.maxNodeCount);
-    auxVecs.id_bucket_expanded.resize(27 * (generalParams.maxNodeCount));
-    auxVecs.id_value_expanded.resize(27 * (generalParams.maxNodeCount));
+    auxVecs.id_bucket_expanded.resize( 27*(generalParams.maxNodeCount));
+    auxVecs.id_value_expanded.resize( 27*(generalParams.maxNodeCount));
 };
 
 

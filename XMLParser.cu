@@ -13,6 +13,7 @@ Types of nodes to include in double layer model data structure:
 
 */ 
 #include "XMLParser.h"
+#include "System.h"
 #include <iostream>
 #include <cstdio>
 
@@ -31,6 +32,49 @@ bool XMLParser::parseFile(const std::string& filename, SystemBuilder& builder) {
         std::cerr << "XMLParser: No <data> root found." << std::endl;
         return false;
     }
+    
+        // ---------- Count nodes per group BEFORE building ----------
+    pugi::xml_node apicalNodes = root.child("apicalNodes");
+    pugi::xml_node bodyNodes   = root.child("bodyNodes");
+    pugi::xml_node basalNodes  = root.child("basalNodes");
+    
+    auto countChildren = [](pugi::xml_node parent, const char* tag) {
+        int c = 0;
+        if (parent) for (pugi::xml_node n = parent.child(tag); n; n = n.next_sibling(tag)) ++c;
+        return c;
+    };
+    
+    const int A = countChildren(apicalNodes, "node"); // apical count per layer
+    const int B = countChildren(bodyNodes,   "node"); // all body nodes (across all body sublayers)
+    const int C = countChildren(basalNodes,  "node"); // basal count per layer
+    
+    if (A == 0) {
+        std::cerr << "XMLParser: No <apicalNodes> or empty." << std::endl;
+        return false;
+    }
+    if (C != 0 && C != A) {
+        std::cerr << "XMLParser: Basal nodes (" << C << ") must equal apical nodes (" << A << ")." << std::endl;
+        return false;
+    }
+    
+    const int totalNodes = A + B + C;
+    
+    // Your formula: body layer count from apical count
+    int N_body = 0;
+    if (B > 0) {
+        if (B % A != 0) {
+            std::cerr << "XMLParser: bodyNodes (" << B << ") not a multiple of apicalNodes (" << A << ")." << std::endl;
+            return false;
+        }
+        N_body = B / A;  // == (totalNodes - 2*A)/A as you specified
+    }
+    const int N_layers = N_body + 2; // Basal..Body..Apical
+    
+    builder.defaultLayers = N_layers;
+    
+    std::cout << "[Layers] A=" << A << " B=" << B << " C=" << C
+              << " -> N_body=" << N_body << " total layers=" << N_layers << std::endl;
+    
     
     // ---------------------------// currently all my constants are taken as the default ones and not the ones from the data structure. Should'nt be the case. I need to add a condition where they are taking in the data structure constants also. 
     // Process <settings> node
@@ -142,45 +186,6 @@ bool XMLParser::parseFile(const std::string& filename, SystemBuilder& builder) {
     // ---------------------------
     // Process <nodes> section
         
-        // ---------- Count nodes per group BEFORE building ----------
-    pugi::xml_node apicalNodes = root.child("apicalNodes");
-    pugi::xml_node bodyNodes   = root.child("bodyNodes");
-    pugi::xml_node basalNodes  = root.child("basalNodes");
-    
-    auto countChildren = [](pugi::xml_node parent, const char* tag) {
-        int c = 0;
-        if (parent) for (pugi::xml_node n = parent.child(tag); n; n = n.next_sibling(tag)) ++c;
-        return c;
-    };
-    
-    const int A = countChildren(apicalNodes, "node"); // apical count per layer
-    const int B = countChildren(bodyNodes,   "node"); // all body nodes (across all body sublayers)
-    const int C = countChildren(basalNodes,  "node"); // basal count per layer
-    
-    if (A == 0) {
-        std::cerr << "XMLParser: No <apicalNodes> or empty." << std::endl;
-        return false;
-    }
-    if (C != 0 && C != A) {
-        std::cerr << "XMLParser: Basal nodes (" << C << ") must equal apical nodes (" << A << ")." << std::endl;
-        return false;
-    }
-    
-    const int totalNodes = A + B + C;
-    
-    // Your formula: body layer count from apical count
-    int N_body = 0;
-    if (B > 0) {
-        if (B % A != 0) {
-            std::cerr << "XMLParser: bodyNodes (" << B << ") not a multiple of apicalNodes (" << A << ")." << std::endl;
-            return false;
-        }
-        N_body = B / A;  // == (totalNodes - 2*A)/A as you specified
-    }
-    const int N_layers = N_body + 2; // Basal..Body..Apical
-    
-    std::cout << "[Layers] A=" << A << " B=" << B << " C=" << C
-              << " -> N_body=" << N_body << " total layers=" << N_layers << std::endl;
     
     // Helper: map a 1-based global node id to its layer index under the new convention.
     // Ordering is assumed Apical [1..A], then N_body blocks of A nodes, then Basal [last A].
@@ -370,7 +375,10 @@ bool XMLParser::parseFile(const std::string& filename, SystemBuilder& builder) {
                 std::cerr << "XMLParser: parse elem error" << std::endl;
                 return false;
             }
-            builder.addElement(a - 1, b - 1, c - 1);
+            if(a-1 != b-1 + 7 || a-1 != c-1 + 7 || b-1 != c-1 + 7){
+                builder.addElement(a - 1, b - 1, c - 1); // This needs to check layerflag as well. If it is a vertical edge it cannot have the triangle added.
+            }// FIX THIS 
+             
         }
         std::cout << "Elements parsed successfully." << std::endl;
     }
@@ -385,7 +393,7 @@ bool XMLParser::parseFile(const std::string& filename, SystemBuilder& builder) {
                 std::cerr << "XMLParser: parse elem2edge error" << std::endl;
                 return false;
             }
-            builder.addElement2Edge(e1 - 1, e2 - 1, e3 - 1);
+            builder.addElement2Edge(e1 - 1, e2 - 1, e3 - 1); // This one can have vertical edges included in this. 
         }
         std::cout << "Element-to-edge mappings parsed successfully." << std::endl;
     }
@@ -400,7 +408,7 @@ bool XMLParser::parseFile(const std::string& filename, SystemBuilder& builder) {
                 std::cerr << "XMLParser: parse edge2elem error" << std::endl;
                 return false;
             }
-            builder.addEdge2Elem(elemID - 1, edgeID - 1);
+            builder.addEdge2Elem(elemID - 1, edgeID - 1); // This one can have vertical edges included in it. 
         }
         std::cout << "Edge-to-element mappings parsed successfully." << std::endl;
     }

@@ -105,36 +105,105 @@ void Storage::print_VTK_File(void) {
     }
     ofs << "1\n";       // VTK_VERTEX for LJ particle
 
+//    // ----------------- cell data: strain per edge + LJ dummy -----------------
+//    ofs << "CELL_DATA " << numCells << "\n";
+//    ofs << "SCALARS Strain double\n";
+//    ofs << "LOOKUP_TABLE default\n";
+//
+//    for (int edge = 0; edge < numEdgesTotal; ++edge) {
+//        if (!edge_valid(edge)) continue;
+//
+//        int idA = SYSTEM->coordInfoVecs.edges2Nodes_1[edge];
+//        int idB = SYSTEM->coordInfoVecs.edges2Nodes_2[edge];
+//
+//        double L0 = SYSTEM->linearSpringInfoVecs.edge_rest_length[edge];
+//        double xL = SYSTEM->coordInfoVecs.nodeLocX[idA];
+//        double yL = SYSTEM->coordInfoVecs.nodeLocY[idA];
+//        double zL = SYSTEM->coordInfoVecs.nodeLocZ[idA];
+//        double xR = SYSTEM->coordInfoVecs.nodeLocX[idB];
+//        double yR = SYSTEM->coordInfoVecs.nodeLocY[idB];
+//        double zR = SYSTEM->coordInfoVecs.nodeLocZ[idB];
+//
+//        double L1 = std::sqrt((xL - xR)*(xL - xR) +
+//                              (yL - yR)*(yL - yR) +
+//                              (zL - zR)*(zL - zR));
+//        double strain = (L1 - L0) / L0;
+//        ofs << std::fixed << strain << "\n";
+//    }
+//
+//    // dummy value for LJ cell
+//    ofs << std::fixed << 0.1 << "\n";
+//
+//    ofs.close();
+    
     // ----------------- cell data: strain per edge + LJ dummy -----------------
     ofs << "CELL_DATA " << numCells << "\n";
+    
+    // 1) Strain
     ofs << "SCALARS Strain double\n";
     ofs << "LOOKUP_TABLE default\n";
-
+    
+    std::vector<double> strain_values;
+    strain_values.reserve(activeEdges);
+    
     for (int edge = 0; edge < numEdgesTotal; ++edge) {
         if (!edge_valid(edge)) continue;
-
+    
         int idA = SYSTEM->coordInfoVecs.edges2Nodes_1[edge];
         int idB = SYSTEM->coordInfoVecs.edges2Nodes_2[edge];
-
-        double L0 = SYSTEM->generalParams.Rmin;
+    
+        double L0 = SYSTEM->linearSpringInfoVecs.edge_rest_length[edge]; // This is incorrect. Must look at what the original rest length was for each spring. 
         double xL = SYSTEM->coordInfoVecs.nodeLocX[idA];
         double yL = SYSTEM->coordInfoVecs.nodeLocY[idA];
         double zL = SYSTEM->coordInfoVecs.nodeLocZ[idA];
         double xR = SYSTEM->coordInfoVecs.nodeLocX[idB];
         double yR = SYSTEM->coordInfoVecs.nodeLocY[idB];
         double zR = SYSTEM->coordInfoVecs.nodeLocZ[idB];
-
+    
         double L1 = std::sqrt((xL - xR)*(xL - xR) +
                               (yL - yR)*(yL - yR) +
                               (zL - zR)*(zL - zR));
         double strain = (L1 - L0) / L0;
+    
+        strain_values.push_back(strain);
         ofs << std::fixed << strain << "\n";
     }
-
-    // dummy value for LJ cell
+    
+    // dummy for LJ cell
     ofs << std::fixed << 0.1 << "\n";
+    
+    // 2) Spring tension proxy = |strain|
+    ofs << "SCALARS SpringTension double\n";
+    ofs << "LOOKUP_TABLE default\n";
+    for (double edge = 0; edge < numEdgesTotal; ++edge){
+        
+        int idA = SYSTEM->coordInfoVecs.edges2Nodes_1[edge];
+        int idB = SYSTEM->coordInfoVecs.edges2Nodes_2[edge];
+    
+        double L0 = SYSTEM->linearSpringInfoVecs.edge_rest_length[edge]; // This is incorrect. Must look at what the original rest length was for each spring. 
+        double xL = SYSTEM->coordInfoVecs.nodeLocX[idA];
+        double yL = SYSTEM->coordInfoVecs.nodeLocY[idA];
+        double zL = SYSTEM->coordInfoVecs.nodeLocZ[idA];
+        double xR = SYSTEM->coordInfoVecs.nodeLocX[idB];
+        double yR = SYSTEM->coordInfoVecs.nodeLocY[idB];
+        double zR = SYSTEM->coordInfoVecs.nodeLocZ[idB];
+    
+        double L1 = std::sqrt((xL - xR)*(xL - xR) +
+                              (yL - yR)*(yL - yR) +
+                              (zL - zR)*(zL - zR));
+        
+        //double tension = std::fabs(s);   // or keep sign if you like
+        
+        double k = SYSTEM->linearSpringInfoVecs.spring_constant;  // at a later point we will have modified the spring constants to be according to the individual springs. 
+        double tension = std::fabs(k * (L1 - L0));
 
+        ofs << std::fixed << tension << "\n";
+    }
+    // dummy for LJ cell
+    ofs << std::fixed << 0.0 << "\n";
+    
     ofs.close();
+
 }
 
 void Storage::storeVariables(void) {

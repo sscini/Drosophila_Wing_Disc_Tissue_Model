@@ -4,6 +4,7 @@
 #include <string>
 #include "SystemBuilder.h"
 #include "SystemStructures.h"
+#include "System.h"
 #include "pugixml/include/pugixml.hpp"
 
 // XMLParser encapsulates the logic for reading an XML file (such as Data_structure_circle_double_layer.xml)

@@ -88,12 +88,12 @@ struct CapsidInfoVecs {
 
 struct PrismInfoVecs {
     // for each basic prism element P we store its 6 node indices. 
-    thrust::device_vector<int> prism2Node_1; // P1 -> The center point for all node
-    thrust::device_vector<int> prism2Node_2; // P2
-    thrust::device_vector<int> prism2Node_3; // P3
-    thrust::device_vector<int> prism2Node_4; // P4
-    thrust::device_vector<int> prism2Node_5; // P5
-    thrust::device_vector<int> prism2Node_6; // P6
+    thrust::device_vector<int> P1; // P1 -> The center point for all node
+    thrust::device_vector<int> P2; // P2
+    thrust::device_vector<int> P3; // P3
+    thrust::device_vector<int> P4; // P4
+    thrust::device_vector<int> P5; // P5
+    thrust::device_vector<int> P6; // P6
     
     int num_prisms;
 };
@@ -127,7 +127,7 @@ struct CoordInfoVecs {
     //thrust::device_vector<CVec3> pos_new; 
     
     
-  	// Data structure to store node-to-triangle connectivity (up to 12 triangles per node).
+  	// Data structure to store node-to-triangle connectivity (up to 24 triangles per node). 
     thrust::device_vector<int> nodes2Triangles_1;
   	thrust::device_vector<int> nodes2Triangles_2;
   	thrust::device_vector<int> nodes2Triangles_3;
@@ -140,13 +140,25 @@ struct CoordInfoVecs {
   	thrust::device_vector<int> nodes2Triangles_10;
   	thrust::device_vector<int> nodes2Triangles_11;
   	thrust::device_vector<int> nodes2Triangles_12;
+    thrust::device_vector<int> nodes2Triangles_13;
+    thrust::device_vector<int> nodes2Triangles_14;
+    thrust::device_vector<int> nodes2Triangles_15;
+    thrust::device_vector<int> nodes2Triangles_16;
+    thrust::device_vector<int> nodes2Triangles_17;
+    thrust::device_vector<int> nodes2Triangles_18;
+    thrust::device_vector<int> nodes2Triangles_19;
+    thrust::device_vector<int> nodes2Triangles_20;
+    thrust::device_vector<int> nodes2Triangles_21;
+    thrust::device_vector<int> nodes2Triangles_22;
+    thrust::device_vector<int> nodes2Triangles_23;
+    thrust::device_vector<int> nodes2Triangles_24;
   
   	// Surface normal vectors for each triangle.
     thrust::device_vector<double> SurfaceNormalX;
   	thrust::device_vector<double> SurfaceNormalY;
   	thrust::device_vector<double> SurfaceNormalZ;
   
-  	// Non-dimensional node data (up to 12 values per node).
+  	// Non-dimensional node data (up to 20 values per node).
     thrust::device_vector<int> nndata1;
   	thrust::device_vector<int> nndata2;
   	thrust::device_vector<int> nndata3;
@@ -159,6 +171,14 @@ struct CoordInfoVecs {
   	thrust::device_vector<int> nndata10;
   	thrust::device_vector<int> nndata11;
   	thrust::device_vector<int> nndata12;
+  	thrust::device_vector<int> nndata13;
+  	thrust::device_vector<int> nndata14;
+  	thrust::device_vector<int> nndata15;
+  	thrust::device_vector<int> nndata16;
+  	thrust::device_vector<int> nndata17;
+  	thrust::device_vector<int> nndata18;
+  	thrust::device_vector<int> nndata19;
+  	thrust::device_vector<int> nndata20;
   
   	// Vector to store whether a node is fixed (true) or not (false).
     thrust::device_vector<bool> isNodeFixed;
@@ -410,7 +430,7 @@ struct GeneralParams{
   double thickness        = 0.10;    // t  in  C0 = (lambda ff – lambda rr)/t
   double tol;// = 1e-4;//tol of 1e-5 and 1e-6 are too low. The positions begin to oscillate and there is no convergence. So we stick to 1e-4. I'm now going to 1e-9. This works but takes too long so I am submitting a different sim with 1e-4
   
-  int num_layers = 0;
+  int num_layers;
   double theta_DV = 0.1002;
 	std::vector<int> triangle_undergoing_growth;
 	double chemdiff_time_step_size;
@@ -421,7 +441,7 @@ struct GeneralParams{
 	double kT_growth;
 	double tau;
 	int solve_time=100;
-	double Rmin = 100.0; // Current mesh minimum edge length, subject to change.
+	//double Rmin = 100.0; // Current mesh minimum edge length, subject to change.
 	double Rmin_growth;
 	double abs_Rmin;
 	int iteration = 0;
@@ -456,7 +476,7 @@ struct GeneralParams{
  
   double c_dx = 0.0; 
   double c_dy = 0.0; 
-  double c_dz = -15.239; // center of sphere that the disc is a part of. (calculated from outer surface) 
+  double c_dz = -15.239; // center of sphere that the disc is a part of. (calculated from outer surface) //redundant now 12_22_25
   double apical_Rx;
 	double current_total_volume;
 	double true_current_total_volume;
@@ -521,16 +541,16 @@ struct GeneralParams{
 
 
   // Strain field (lambda) values in the outDV region at different stages of eversion.
-  double lambda_iso_center_outDV;// = -0.12406004; //   wl3-0hAPF (-0.12406004) | wl3-2hAPF (-0.29431527) | wl3-4hAPF (-0.20050286)
-  double lambda_iso_edge_outDV;// = 1.20789496; //      wl3-0hAPF ( 1.20789496) | wl3-2hAPF ( 1.44256030) | wl3-4hAPF ( 1.43479468)
-  double lambda_aniso_center_outDV;// = -0.06172103;//  wl3-0hAPF (-0.06172103) | wl3-2hAPF ( 0.21823128) | wl3-4hAPF ( 0.29444448)
-  double lambda_aniso_edge_outDV;// = 1.01053997; //    wl3-0hAPF ( 1.01053997) | wl3-2hAPF ( 0.98874841) | wl3-4hAPF ( 0.97652462)
+  double lambda_iso_center_outDV = -0.12406004; //   wl3-0hAPF (-0.12406004) | wl3-2hAPF (-0.29431527) | wl3-4hAPF (-0.20050286)
+  double lambda_iso_edge_outDV = 1.20789496; //      wl3-0hAPF ( 1.20789496) | wl3-2hAPF ( 1.44256030) | wl3-4hAPF ( 1.43479468)
+  double lambda_aniso_center_outDV = -0.06172103;//  wl3-0hAPF (-0.06172103) | wl3-2hAPF ( 0.21823128) | wl3-4hAPF ( 0.29444448)
+  double lambda_aniso_edge_outDV = 1.01053997; //    wl3-0hAPF ( 1.01053997) | wl3-2hAPF ( 0.98874841) | wl3-4hAPF ( 0.97652462)
   
   // Strain field (lambda) values in inDV region at different stages of eversion. 
-  double lambda_iso_center_inDV;// = 1.0; //    wl3-0hAPF (-0.09848994) | wl3-2hAPF (-0.11692544) | wl3-4hAPF (-0.06151876)
-  double lambda_iso_edge_inDV;// = 1.0;//       wl3-0hAPF ( 1.18401136) | wl3-2hAPF ( 1.21007540) | wl3-4hAPF ( 1.47472744)
-  double lambda_aniso_center_inDV;// = 1.0; //  wl3-0hAPF (-0.12904887) | wl3-2hAPF (-0.21271504) | wl3-4hAPF (-0.30567972)
-  double lambda_aniso_edge_inDV;// = 1.0; //    wl3-0hAPF ( 1.03128453) | wl3-2hAPF ( 1.24178074) | wl3-4hAPF ( 1.29370391)
+  double lambda_iso_center_inDV = -0.09848994; //    wl3-0hAPF (-0.09848994) | wl3-2hAPF (-0.11692544) | wl3-4hAPF (-0.06151876)
+  double lambda_iso_edge_inDV = 1.18401136;//       wl3-0hAPF ( 1.18401136) | wl3-2hAPF ( 1.21007540) | wl3-4hAPF ( 1.47472744)
+  double lambda_aniso_center_inDV = -0.12904887; //  wl3-0hAPF (-0.12904887) | wl3-2hAPF (-0.21271504) | wl3-4hAPF (-0.30567972)
+  double lambda_aniso_edge_inDV = 1.03128453; //    wl3-0hAPF ( 1.03128453) | wl3-2hAPF ( 1.24178074) | wl3-4hAPF ( 1.29370391)
   
   double disc_radius;//= 77.66; // manually input radius for each of the discs you're computing. 
   double sphere_R;
@@ -592,6 +612,10 @@ public:
 	System();
 
 	void set_weak_builder(std::weak_ptr<SystemBuilder> _weak_bld_ptr);
+ 
+  void printEdges();
+  
+  void printTriangles();
 
 	void PrintForce();
 

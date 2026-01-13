@@ -97,7 +97,7 @@ struct LinearSpringFunctor {
              //   double scaling_pow = 4.0;
         //counter ranges from 0 to num_edges. 
         int counter = thrust::get<0>(u3d);
-		int place = 2 * counter;//represents location in write to vector.
+		    int place = 2 * counter;//represents location in write to vector.
 
         int edgeL = thrust::get<1>(u3d);
         int edgeR = thrust::get<2>(u3d);
@@ -109,51 +109,51 @@ struct LinearSpringFunctor {
       if (edgeL != INT_MAX && edgeL >= 0 && edgeR != INT_MAX && edgeR >= 0){
           double length_zero = rest_length[counter];      
           double what_spring_constant;
-          if (SCALE_TYPE == 0){
-              what_spring_constant = spring_constant*(1.0 - ((1.0/sqrt(2*3.14159*gausssigma))*exp(-(scaling_per_edge[counter]*scaling_per_edge[counter])/gausssigma)));
-              if (what_spring_constant < spring_constant_weak){what_spring_constant = spring_constant;}
-          }
-          else if (SCALE_TYPE == 1){
-              what_spring_constant = spring_constant_weak*pow(scaling_per_edge[counter],scaling_pow) +
-               spring_constant_weak*(1-pow(scaling_per_edge[counter], scaling_pow));
-          }
-          else if (SCALE_TYPE == 2){
-              what_spring_constant = spring_constant - (spring_constant - spring_constant_weak)*scaling_per_edge[counter];
-          }
-          else if (SCALE_TYPE == 3){
-              if (edges_in_upperhem[counter] == 1){
-                  what_spring_constant = spring_constant_weak;
-                  //length_zero = length_zero_growth;
-              }
-              else if (edges_in_upperhem[counter] == 0){
-                  what_spring_constant = (spring_constant_weak + spring_constant)/2.0;
-              }
-              else{
-                  what_spring_constant = spring_constant;
-              }
-          }
-          else if (SCALE_TYPE == 4){
-              if (nonuniform_wall_weakening_linear == true){
-                  //double scaling = 0.0;//spring_constant_weak/spring_constant;
-                  double spectrum = maxSpringScaler_linear*spring_constant - spring_constant_weak;
-                  //what_spring_constant = spring_constant*((1.0/(1.0+pow(hilleqnconst/scaling_per_edge[counter], hilleqnpow)))*(1-scaling) + scaling);
-                  what_spring_constant = spring_constant_weak + ((1.0/(1.0+pow(hilleqnconst/scaling_per_edge[counter], hilleqnpow)))*spectrum);
-                  if (what_spring_constant < spring_constant_weak){what_spring_constant = spring_constant_weak;}
-              }
-              else{
-                  if (edges_in_upperhem[counter] == 1){
-                      what_spring_constant = spring_constant_weak; // currently we're making the top and bottom layers weak while keeping the spring constant for the vertical springs very high. 
-                  //length_zero = length_zero_growth;
-                  }
-                  else if (edges_in_upperhem[counter] == -1){
-                      what_spring_constant = spring_constant_vertical;//(spring_constant_weak + spring_constant)/2.0;
-                  }
-                  else{
-                      what_spring_constant = spring_constant;
-                  }
-              }
-          }  
-  
+//      if (SCALE_TYPE == 0){
+//          what_spring_constant = spring_constant*(1.0 - ((1.0/sqrt(2*3.14159*gausssigma))*exp(-(scaling_per_edge[counter]*scaling_per_edge[counter])/gausssigma)));
+//          if (what_spring_constant < spring_constant_weak){what_spring_constant = spring_constant;}
+//      }
+//      else if (SCALE_TYPE == 1){
+//          what_spring_constant = spring_constant_weak*pow(scaling_per_edge[counter],scaling_pow) +
+//           spring_constant_weak*(1-pow(scaling_per_edge[counter], scaling_pow));
+//      }
+//      else if (SCALE_TYPE == 2){
+//          what_spring_constant = spring_constant - (spring_constant - spring_constant_weak)*scaling_per_edge[counter];
+//      }
+//      else if (SCALE_TYPE == 3){
+//          if (edges_in_upperhem[counter] == 1){
+//              what_spring_constant = spring_constant_weak;
+//              //length_zero = length_zero_growth;
+//          }
+//          else if (edges_in_upperhem[counter] == 0){
+//              what_spring_constant = (spring_constant_weak + spring_constant)/2.0;
+//          }
+//          else{
+//              what_spring_constant = spring_constant;
+//          }
+//      }
+//      else if (SCALE_TYPE == 4){
+//          if (nonuniform_wall_weakening_linear == true){
+//              //double scaling = 0.0;//spring_constant_weak/spring_constant;
+//              double spectrum = maxSpringScaler_linear*spring_constant - spring_constant_weak;
+//              //what_spring_constant = spring_constant*((1.0/(1.0+pow(hilleqnconst/scaling_per_edge[counter], hilleqnpow)))*(1-scaling) + scaling);
+//              what_spring_constant = spring_constant_weak + ((1.0/(1.0+pow(hilleqnconst/scaling_per_edge[counter], hilleqnpow)))*spectrum);
+//              if (what_spring_constant < spring_constant_weak){what_spring_constant = spring_constant_weak;}
+//          }
+//          else{
+//              if (edges_in_upperhem[counter] == 1){
+//                  what_spring_constant = spring_constant_weak; // currently we're making the top and bottom layers weak while keeping the spring constant for the vertical springs very high. 
+//              //length_zero = length_zero_growth;
+//              }
+//              else if (edges_in_upperhem[counter] == -1){
+//                  what_spring_constant = spring_constant_vertical;//(spring_constant_weak + spring_constant)/2.0;
+//              }
+//              else{
+//                  what_spring_constant = spring_constant;
+//              }
+//          }
+//      }  
+          what_spring_constant = spring_constant;
       
           //double length_zero = thrust::get<3>(u3d);
   
@@ -173,12 +173,12 @@ struct LinearSpringFunctor {
               double magnitude = -(what_spring_constant) * (length_current - length_zero);
       
               idKey[place] = edgeL;
-             // printf("what_spring_constant = %f\n", what_spring_constant);
-             // printf("magnitude = %f\n", magnitude);
-             // printf("Linear Springs length_current = %f\n", length_current);
-             // printf("xLoc_LR = %f\n", xLoc_LR);
-             // printf("yLoc_LR = %f\n", yLoc_LR);
-             // printf("zLoc_LR = %f\n", zLoc_LR);
+              printf("what_spring_constant = %f\n", what_spring_constant);
+              printf("magnitude = %f\n", magnitude);
+              printf("Linear Springs length_current = %f\n", length_current);
+              printf("xLoc_LR = %f\n", xLoc_LR);
+              printf("yLoc_LR = %f\n", yLoc_LR);
+              printf("zLoc_LR = %f\n", zLoc_LR);
               
               //issue here writing to vectors with force????
               forceXAddr[place] = magnitude * (xLoc_LR/length_current);

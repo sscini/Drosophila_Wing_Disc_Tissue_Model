@@ -4,13 +4,14 @@
 // with ?_rr = ?_iso * ?_aniso,  ?_ff = ?_iso / ?_aniso,  ?_hh = 1.
 //
 // Inside the DV stripe:
-//   - e_R is locked to the DV axis (the blue line from one DV edge to the other).
+//   - e_R is the *radial* direction away from the line segment joining O_D and O_V
+//     (the DV boundary line).
+//   - Only radial strain is applied: ?_rr as scheduled, ?_pp = 1, ?_ss = 1.
 // Outside the DV stripe:
-//   - e_R is constructed exactly as before BUT using OA from OD (dorsal) or OV (ventral).
-//   - The side (D vs V) is decided by the sign of projection onto a fixed in-plane vector
-//     perpendicular to the DV axis.
+//   - e_R is constructed as before using OA from OD (dorsal) or OV (ventral),
+//     with side decided by a fixed in-plane vector perpendicular to the DV axis.
 //
-// Vertical/pillar edges are flagged as -1 and are not altered here.
+// Vertical/pillar edges are flagged as -1 and are not altered in the rest-length update.
 
 #include "StrainTensor.h"
 #include "SystemStructures.h"
@@ -107,7 +108,7 @@ inline double dot3(const CVec3& a, const CVec3& b) {
 
 // ============================================================================
 // Mark DV stripe (independent of layer).
-// Stripe is |x - centerX| = R * sin(theta_DV/2).
+// Stripe is |x - centerX| <= R * sin(theta_DV/2).
 // ============================================================================
 
 __global__
@@ -127,7 +128,7 @@ void k_markDVstripe(int N,
 // ============================================================================
 // Build local basis vectors (e_h, e_R, e_phi) at every vertex
 // DV-aware variant:
-//   - inside DV stripe: e_R is the (global) unit DV axis
+//   - inside DV stripe: e_R is radial away from the O_D–O_V line segment
 //   - outside stripe:   e_R from OD/OV edge-centers on the appropriate side
 // ============================================================================
 
@@ -164,6 +165,7 @@ void k_buildBasis_DVaware(
     CVec3 u = normalize( CVec3( c<0>(DV_B)-c<0>(DV_A),
                                  c<1>(DV_B)-c<1>(DV_A),
                                  c<2>(DV_B)-c<2>(DV_A) ) );   // axis along stripe
+
     CVec3 Omid = CVec3( 0.5*(c<0>(DV_A)+c<0>(DV_B)),
                         0.5*(c<1>(DV_A)+c<1>(DV_B)),
                         0.5*(c<2>(DV_A)+c<2>(DV_B)) );
@@ -177,22 +179,73 @@ void k_buildBasis_DVaware(
     // -------- choose construction by region
     CVec3 eR;
     if (DVflag[i]) {
-        // Inside the stripe: e_R is locked to the DV axis
-        eR = u;
+        // ---------------------------------------------------------
+        // Inside the DV stripe:
+        //   - Define e_R as the radial direction away from the line
+        //     segment joining O_D and O_V (DV boundary line).
+        //   - Line parameterization: O_D + t*(O_V - O_D),  t?[0,1].
+        // ---------------------------------------------------------
+        CVec3 ODOV = CVec3(
+            c<0>(O_V) - c<0>(O_D),
+            c<1>(O_V) - c<1>(O_D),
+            c<2>(O_V) - c<2>(O_D)
+        );
+
+        double denom = dot3(ODOV, ODOV) + 1e-14; // avoid divide-by-zero
+        CVec3 w = CVec3(
+            c<0>(P) - c<0>(O_D),
+            c<1>(P) - c<1>(O_D),
+            c<2>(P) - c<2>(O_D)
+        );
+
+        // Projection parameter of P onto the O_D–O_V line
+        double t = dot3(w, ODOV) / denom;
+        // Clamp to the finite segment between O_D and O_V
+        if (t < 0.0) t = 0.0;
+        else if (t > 1.0) t = 1.0;
+
+        // Closest point on the DV boundary line
+        CVec3 Cline = CVec3(
+            c<0>(O_D) + t * c<0>(ODOV),
+            c<1>(O_D) + t * c<1>(ODOV),
+            c<2>(O_D) + t * c<2>(ODOV)
+        );
+
+        // Radial direction away from the DV boundary line
+        CVec3 radial = CVec3(
+            c<0>(P) - c<0>(Cline),
+            c<1>(P) - c<1>(Cline),
+            c<2>(P) - c<2>(Cline)
+        );
+
+        // Remove any normal component so e_R stays in-surface
+        double hdot = dot3(eh, radial);
+        CVec3 radial_tan = CVec3(
+            c<0>(radial) - hdot * c<0>(eh),
+            c<1>(radial) - hdot * c<1>(eh),
+            c<2>(radial) - hdot * c<2>(eh)
+        );
+
+        eR = normalize(radial_tan);
     } else {
         // Outside stripe: decide side by signed distance along v_perp
-        double sgn = dot3( CVec3( c<0>(P)-c<0>(Omid),
-                                  c<1>(P)-c<1>(Omid),
-                                  c<2>(P)-c<2>(Omid) ), v_perp );
+        double sgn = dot3(
+            CVec3( c<0>(P)-c<0>(Omid),
+                   c<1>(P)-c<1>(Omid),
+                   c<2>(P)-c<2>(Omid) ),
+            v_perp
+        );
 
         CVec3 O = (sgn >= 0.0) ? O_V : O_D;  // +side -> Ventral, -side -> Dorsal
 
         // OA from region origin, projected to tangent plane, normalized
         CVec3 OA = CVec3( c<0>(P)-c<0>(O), c<1>(P)-c<1>(O), c<2>(P)-c<2>(O) );
         double hdot = dot3(eh, OA);
-        CVec3 OA_tan = CVec3( c<0>(OA) - hdot*c<0>(eh),
-                              c<1>(OA) - hdot*c<1>(eh),
-                              c<2>(OA) - hdot*c<2>(eh) );
+        CVec3 OA_tan = CVec3(
+            c<0>(OA) - hdot*c<0>(eh),
+            c<1>(OA) - hdot*c<1>(eh),
+            c<2>(OA) - hdot*c<2>(eh)
+        );
         eR = normalize(OA_tan);
     }
 
@@ -203,7 +256,7 @@ void k_buildBasis_DVaware(
 }
 
 // ============================================================================
-// Build ? at vertices (unchanged except it consumes the e_R/e_phi/e_h from above)
+// Build ? at vertices
 // ? := radial distance from disc centre in the plane, normalized by disc radius.
 // ============================================================================
 
@@ -254,6 +307,11 @@ void k_buildLambda(int    N,
     lam_pp[tid] = lamIso / lamAni;
     lam_ss[tid] = 1.0; // no through-thickness growth
 
+    // Inside DV stripe: only radial strain; kill tangential strain
+    if (inDV) {
+        lam_pp[tid] = 1.0;
+    }
+
     // assemble tensor
     Mat_3x3 L = Mat_3x3{ CVec3(0,0,0), CVec3(0,0,0), CVec3(0,0,0) };
     axpy(lam_rr[tid], outer(e_R [tid], e_R [tid]), L);
@@ -278,7 +336,7 @@ void k_edgeRestProj(int    E,
     int eid = blockIdx.x*blockDim.x + threadIdx.x;
     if (eid >= E) return;
 
-    // Do not alter vertical/pillar edges
+    // Do not alter vertical/pillar edges. Layer flag = -1.
     if (edgeLayerFlags[eid] == -1) return;
 
     int a = e2n1[eid];
@@ -355,7 +413,7 @@ void buildVertexLambda(GeneralParams& gp,
         thrust::raw_pointer_cast(coord.nodeLocX.data()),
         thrust::raw_pointer_cast(coord.nodeLocY.data()),
         thrust::raw_pointer_cast(coord.nodeLocZ.data()),
-        gp.c_dx, gp.c_dy, gp.c_dz,       // sphere center FOR e_h
+        gp.c_dx, gp.c_dy, gp.c_dz,          // sphere center FOR e_h
         gp.centerX, gp.centerY, gp.centerZ, // (kept for ABI, not used here)
         DV_A, DV_B, O_D, O_V,
         thrust::raw_pointer_cast(gp.nodes_in_DV.data()),

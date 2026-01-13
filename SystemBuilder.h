@@ -43,6 +43,7 @@ public:
     double defaultLJ_X = 0.0; // Default Lennard-Jones X value.
     double defaultLJ_Y = 0.0; // Default Lennard-Jones Y value.
     double defaultLJ_Z = -0.1; // Default Lennard-Jones Z value.
+    double defaultLayers = 8.0;
 
     double defaultEdgeEq = 100.0; // Default equilibrium length for edges (can be overridden by input).
     double defaultAreaEq = 0.0; // Default equilibrium area for triangles (can be overridden by input).

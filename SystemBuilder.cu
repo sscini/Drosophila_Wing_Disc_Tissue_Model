@@ -115,7 +115,7 @@ std::shared_ptr<System> SystemBuilder::createSystem() {
 	host_ptr_System->generalParams.kT = defaultKBT;
   host_ptr_System->generalParams.Tf = defaultTf;
   host_ptr_System->generalParams.tol = defaulttol;
-  host_ptr_System->generalParams.Rmin = defaultRmin;
+  //host_ptr_System->generalParams.Rmin = defaultRmin;
   host_ptr_System->generalParams.lambda_iso_center_outDV = defaultlambda_iso_out_DV_center;
   host_ptr_System->generalParams.lambda_iso_edge_outDV = defaultlambda_iso_out_DV_edge;
   host_ptr_System->generalParams.lambda_aniso_center_outDV = defaultlambda_aniso_out_DV_center;
@@ -139,6 +139,7 @@ std::shared_ptr<System> SystemBuilder::createSystem() {
 
 	host_ptr_System->linearSpringInfoVecs.scalar_edge_length = defaultEdgeEq;
 	host_ptr_System->areaTriangleInfoVecs.initial_area = defaultAreaEq;
+  host_ptr_System->generalParams.num_layers = defaultLayers;
 	//host_ptr_System->bendingTriangleInfoVecs.initial_angle = defaultAngleEq;
 
 	// Initialize the System object with the data stored in hostSetInfoVecs.

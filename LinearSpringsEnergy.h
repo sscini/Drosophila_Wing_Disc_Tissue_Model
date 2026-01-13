@@ -38,7 +38,7 @@ struct LinearSpringEnergyFunctor {
         		
         //counter ranges from 0 to num_edges. 
         int counter = thrust::get<0>(u3d);
-		int place = 2 * counter;//represents location in write to vector.
+    		int place = 2 * counter;//represents location in write to vector.
 
         int edgeL = thrust::get<1>(u3d);
         int edgeR = thrust::get<2>(u3d);

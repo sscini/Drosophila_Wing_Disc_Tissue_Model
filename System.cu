@@ -669,17 +669,27 @@ void System::solveSystem()
     
     std::cout << "\n========== INITIAL RELAXATION ==========" << std::endl;
     
+    cudaError_t e1 = cudaDeviceSynchronize();
+
+    std::cout<<"error 1"<<std::endl;
     // Store original rest lengths before any strain is applied
     thrust::device_vector<double> original_rest_lengths = linearSpringInfoVecs.edge_initial_length;
+    
+    std::cout<<"error 2"<<std::endl;
+    
     
     // Make sure rest lengths equal initial lengths at start
     thrust::copy(linearSpringInfoVecs.edge_initial_length.begin(),
                  linearSpringInfoVecs.edge_initial_length.end(),
                  linearSpringInfoVecs.edge_rest_length.begin());
+    
+    std::cout<<"error 3"<<std::endl;
 
     // Relax the initial configuration to remove any numerical artifacts
     generalParams.tol = 1e-8;
     int initial_relax_iters = relaxUntilConverged(*this);
+    
+    std::cout<<"error 4"<<std::endl;
     
     std::cout << "Initial relaxation converged in " << initial_relax_iters 
               << " iterations, E = " << linearSpringInfoVecs.linear_spring_energy << std::endl;
@@ -1094,10 +1104,22 @@ void System::initializeSystem(HostSetInfoVecs & hostSetInfoVecs)
     // linearSpringInfoVecs.edge_initial_length.clear();
     // linearSpringInfoVecs.edge_rest_length.clear();
 
-    // linearSpringInfoVecs.edge_rest_length.resize(hostSetInfoVecs.edge_rest_length.size());
-    linearSpringInfoVecs.edge_final_length.resize(hostSetInfoVecs.edge_initial_length.size());
+    const int E = coordInfoVecs.num_edges;
+
+    // These MUST be size E
+    linearSpringInfoVecs.edge_initial_length.resize(E);
+    linearSpringInfoVecs.edge_rest_length.resize(E);
+    linearSpringInfoVecs.edge_final_length.resize(E);
+    
+    // Copy from host (host vectors must also be size E)
     linearSpringInfoVecs.edge_initial_length = hostSetInfoVecs.edge_initial_length;
-    linearSpringInfoVecs.edge_final_length = hostSetInfoVecs.edge_initial_length;
+    linearSpringInfoVecs.edge_rest_length    = hostSetInfoVecs.edge_initial_length;
+    linearSpringInfoVecs.edge_final_length   = hostSetInfoVecs.edge_initial_length;
+
+//    // linearSpringInfoVecs.edge_rest_length.resize(hostSetInfoVecs.edge_rest_length.size());
+//    linearSpringInfoVecs.edge_final_length.resize(hostSetInfoVecs.edge_initial_length.size());
+//    linearSpringInfoVecs.edge_initial_length = hostSetInfoVecs.edge_initial_length;
+//    linearSpringInfoVecs.edge_final_length = hostSetInfoVecs.edge_initial_length;
     
     
     std::cout << "host edge_initial_length size = " << hostSetInfoVecs.edge_initial_length.size() << std::endl;
@@ -1125,6 +1147,14 @@ void System::initializeSystem(HostSetInfoVecs & hostSetInfoVecs)
 
     std::cout << "host edge_rest_length size = " << hostSetInfoVecs.edge_rest_length.size() << std::endl;
     std::cout << "device edge_rest_length size = " << linearSpringInfoVecs.edge_rest_length.size() << std::endl;
+    
+    if ((int)hostSetInfoVecs.edge_initial_length.size() != E) {
+        std::cerr << "FATAL: host edge_initial_length size "
+                  << hostSetInfoVecs.edge_initial_length.size()
+                  << " != num_edges " << E << "\n";
+        std::abort();
+    }
+
 
     //linearSpringInfoVecs.edge_final_length.resize(coordInfoVecs.num_edges);
 
@@ -1177,8 +1207,8 @@ void System::initializeSystem(HostSetInfoVecs & hostSetInfoVecs)
     // Allocate memory for buckets.
     auxVecs.id_bucket.resize(generalParams.maxNodeCount);
     auxVecs.id_value.resize(generalParams.maxNodeCount);
-    auxVecs.id_bucket_expanded.resize( 27*(generalParams.maxNodeCount));
-    auxVecs.id_value_expanded.resize( 27*(generalParams.maxNodeCount));
+    auxVecs.id_bucket_expanded.resize( (generalParams.maxNodeCount));
+    auxVecs.id_value_expanded.resize( (generalParams.maxNodeCount));
 };
 
 

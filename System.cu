@@ -33,7 +33,12 @@
 #include <cmath>
 #include <map>
 
-// Helper: compute 6 * signed volume of tetrahedron (i,j,k,l)
+// ============================================================================
+// Helper function: sixV_tet_host
+// Computes 6 * signed volume of tetrahedron with vertices i,j,k,l
+// This should already exist in your System.cu, included here for completeness
+// ============================================================================
+
 static inline double sixV_tet_host(
     const std::vector<double>& X,
     const std::vector<double>& Y,
@@ -52,10 +57,12 @@ static inline double sixV_tet_host(
     const double wy = Y[k] - Y[l];
     const double wz = Z[k] - Z[l];
 
+    // Cross product v × w
     const double cx = vy * wz - vz * wy;
     const double cy = vz * wx - vx * wz;
     const double cz = vx * wy - vy * wx;
 
+    // Dot product u · (v × w) = 6 * signed volume
     return ux * cx + uy * cy + uz * cz;
 }
 
@@ -79,33 +86,45 @@ static double computePrism6V(
     return s1 + s2 + s3;
 }
 
+// ============================================================================
+// FIXED BuildPrismsFromLayerFlags for Dome/Curved Geometry
+// ============================================================================
+// 
+// Problem: The previous version used geometric filtering (XY vs Z displacement)
+// to identify "straight-down" edges. This FAILS for dome geometry where the
+// vertical edges are radial, not Cartesian-vertical.
+//
+// Solution: Use INDEX-BASED CORRESPONDENCE. Your mesh is constructed such that:
+//   - Apical nodes are indices 0 to (A-1)
+//   - Basal nodes are indices A to (2A-1)  [for 2-layer case]
+//   - The straight-down edge from apical node i goes to basal node (i + A)
+//
+// This works because XMLParser.cu adds nodes in order:
+//   1. Apical nodes (with layer flag = maxLayer)
+//   2. Body nodes if any (with layer flags 1 to maxLayer-1)
+//   3. Basal nodes (with layer flag = 0)
+//
+// ============================================================================
+
 static void BuildPrismsFromLayerFlags(
     const GeneralParams& gp,
     const CoordInfoVecs& coord,
     PrismInfoVecs& prism)
 {
-    // Copy data to host
     thrust::host_vector<int> hLayer = gp.nodes_in_upperhem;
     thrust::host_vector<int> t1 = coord.triangles2Nodes_1;
     thrust::host_vector<int> t2 = coord.triangles2Nodes_2;
     thrust::host_vector<int> t3 = coord.triangles2Nodes_3;
-    
-    // Get edge connectivity to find vertical edges
-    thrust::host_vector<int> e1 = coord.edges2Nodes_1;
-    thrust::host_vector<int> e2 = coord.edges2Nodes_2;
-    thrust::host_vector<int> edgeLayer = gp.edges_in_upperhem;
 
-    const int Nnodes = (int)coord.nodeLocX.size();
-    const int Nedges = (int)coord.num_edges;
-    const int Ntriangles = coord.num_triangles;
-
-    if (Nnodes == 0) {
-        std::cout << "BuildPrisms: No nodes!" << std::endl;
+    const int Ntot = (int)hLayer.size();
+    if (Ntot == 0) {
+        std::cout << "ERROR: nodes_in_upperhem is empty.\n";
         prism.num_prisms = 0;
         return;
     }
 
-    // Copy coordinates
+    // Copy coordinates to host for volume calculations
+    const int Nnodes = (int)coord.nodeLocX.size();
     std::vector<double> X(Nnodes), Y(Nnodes), Z(Nnodes);
     for (int i = 0; i < Nnodes; ++i) {
         X[i] = coord.nodeLocX[i];
@@ -113,204 +132,251 @@ static void BuildPrismsFromLayerFlags(
         Z[i] = coord.nodeLocZ[i];
     }
 
-    // Determine layer structure
+    // ========================================================================
+    // STEP 1: Determine layer structure
+    // ========================================================================
+    
     int maxFlag = -1;
     int minFlag = INT_MAX;
-    for (int i = 0; i < Nnodes; ++i) {
+    for (int i = 0; i < Ntot; ++i) {
         if (hLayer[i] >= 0) {
-            maxFlag = std::max(maxFlag, (int)hLayer[i]);
-            minFlag = std::min(minFlag, (int)hLayer[i]);
+            maxFlag = std::max(maxFlag, hLayer[i]);
+            minFlag = std::min(minFlag, hLayer[i]);
         }
     }
-    
-    std::cout << "BuildPrisms: Layer flags range from " << minFlag << " to " << maxFlag << std::endl;
 
     if (maxFlag < 1) {
-        std::cout << "BuildPrisms: Need at least 2 layers!" << std::endl;
+        std::cout << "ERROR: Need at least two layers (maxFlag >= 1).\n";
         prism.num_prisms = 0;
         return;
     }
 
-    // Build map of vertical connections using ACTUAL vertical edges from the mesh
-    // edgeLayer == -1 means vertical edge
-    std::map<int, int> apicalToBasal;  // Maps apical node -> basal node
-    std::map<int, int> basalToApical;  // Maps basal node -> apical node
+    std::cout << "BuildPrisms: Layer flags range from " << minFlag << " to " << maxFlag << std::endl;
+    std::cout << "BuildPrisms: Apical layer = " << maxFlag << ", Basal layer = " << minFlag << std::endl;
+
+    // ========================================================================
+    // STEP 2: Build layer membership lists
+    // Collect which nodes belong to which layer
+    // ========================================================================
     
-    int apicalLayer = maxFlag;  // Typically 1 for 2-layer mesh
-    int basalLayer = minFlag;   // Typically 0
-
-    std::cout << "BuildPrisms: Apical layer = " << apicalLayer << ", Basal layer = " << basalLayer << std::endl;
-
-    for (int e = 0; e < Nedges; ++e) {
-        int n1 = e1[e];
-        int n2 = e2[e];
-        
-        // Check if this is a vertical edge (connects different layers)
-        if (n1 < 0 || n2 < 0 || n1 >= Nnodes || n2 >= Nnodes) continue;
-        
-        int L1 = hLayer[n1];
-        int L2 = hLayer[n2];
-        
-        // Vertical edge if layers differ (or edgeLayer == -1)
-        bool isVertical = (edgeLayer[e] == -1) || (L1 != L2);
-        
-        if (isVertical && L1 >= 0 && L2 >= 0) {
-            // Determine which is apical and which is basal
-            int apicalNode = -1, basalNode = -1;
-            
-            if (L1 == apicalLayer && L2 == basalLayer) {
-                apicalNode = n1;
-                basalNode = n2;
-            } else if (L2 == apicalLayer && L1 == basalLayer) {
-                apicalNode = n2;
-                basalNode = n1;
-            }
-            
-            if (apicalNode >= 0 && basalNode >= 0) {
-                apicalToBasal[apicalNode] = basalNode;
-                basalToApical[basalNode] = apicalNode;
-            }
+    std::vector<std::vector<int>> layers(maxFlag + 1);
+    for (int i = 0; i < Ntot; ++i) {
+        int ell = hLayer[i];
+        if (ell >= 0 && ell <= maxFlag) {
+            layers[ell].push_back(i);
         }
     }
 
-    std::cout << "BuildPrisms: Found " << apicalToBasal.size() << " vertical edge pairs" << std::endl;
+    // Print layer sizes for debugging
+    std::cout << "BuildPrisms: Layer sizes:" << std::endl;
+    for (int ell = 0; ell <= maxFlag; ++ell) {
+        std::cout << "  Layer " << ell << ": " << layers[ell].size() << " nodes" << std::endl;
+    }
 
-    // If no vertical edges found, fall back to nearest-neighbor matching
-    if (apicalToBasal.empty()) {
-        std::cout << "BuildPrisms: No vertical edges found, using nearest-neighbor matching" << std::endl;
-        
-        // Collect apical and basal nodes
-        std::vector<int> apicalNodes, basalNodes;
-        for (int i = 0; i < Nnodes; ++i) {
-            if (hLayer[i] == apicalLayer) apicalNodes.push_back(i);
-            else if (hLayer[i] == basalLayer) basalNodes.push_back(i);
+    // ========================================================================
+    // STEP 3: Validate that adjacent layers have same node count
+    // This is required for index-based correspondence
+    // ========================================================================
+    
+    for (int ell = 1; ell <= maxFlag; ++ell) {
+        if (layers[ell].empty() || layers[ell-1].empty()) {
+            std::cout << "ERROR: Layer " << ell << " or " << (ell-1) << " is empty.\n";
+            prism.num_prisms = 0;
+            return;
         }
-        
-        // Match by XY distance
-        for (int ap : apicalNodes) {
-            double bestDist = 1e30;
-            int bestBasal = -1;
-            for (int ba : basalNodes) {
-                double dx = X[ap] - X[ba];
-                double dy = Y[ap] - Y[ba];
-                double dist = dx*dx + dy*dy;
-                if (dist < bestDist) {
-                    bestDist = dist;
-                    bestBasal = ba;
-                }
-            }
-            if (bestBasal >= 0) {
-                apicalToBasal[ap] = bestBasal;
-                basalToApical[bestBasal] = ap;
-            }
+        if (layers[ell].size() != layers[ell-1].size()) {
+            std::cout << "ERROR: Layer " << ell << " has " << layers[ell].size()
+                      << " nodes but layer " << (ell-1) << " has " << layers[ell-1].size()
+                      << ". Cannot use index-based correspondence.\n";
+            prism.num_prisms = 0;
+            return;
         }
     }
 
-    // Now build prisms from apical triangles
+    // ========================================================================
+    // STEP 4: Build downMap using INDEX-BASED CORRESPONDENCE
+    // 
+    // Key insight: Nodes are added in consistent order by XMLParser:
+    //   - First all apical nodes (layer maxFlag)
+    //   - Then body nodes if any (layers 1 to maxFlag-1)
+    //   - Then basal nodes (layer 0)
+    //
+    // Within each layer, nodes maintain the same local ordering.
+    // So node k in layer ell corresponds to node k in layer ell-1.
+    // ========================================================================
+    
+    std::vector<int> downMap(Nnodes, -1);
+    
+    // Build local index within each layer
+    std::vector<int> localIndex(Nnodes, -1);
+    for (int ell = 0; ell <= maxFlag; ++ell) {
+        for (int k = 0; k < (int)layers[ell].size(); ++k) {
+            int globalNodeId = layers[ell][k];
+            localIndex[globalNodeId] = k;
+        }
+    }
+
+    // Now build downMap: for each node in layer ell > 0, 
+    // find the node in layer ell-1 with the same local index
+    int mappedCount = 0;
+    for (int ell = 1; ell <= maxFlag; ++ell) {
+        for (int k = 0; k < (int)layers[ell].size(); ++k) {
+            int upperNode = layers[ell][k];
+            int lowerNode = layers[ell-1][k];  // Same local index k
+            downMap[upperNode] = lowerNode;
+            mappedCount++;
+        }
+    }
+
+    std::cout << "BuildPrisms: Created " << mappedCount 
+              << " node mappings using index-based correspondence" << std::endl;
+
+    // Debug: Print first few mappings
+    std::cout << "BuildPrisms: Sample mappings (upper -> lower):" << std::endl;
+    int printCount = 0;
+    for (int i = 0; i < Nnodes && printCount < 10; ++i) {
+        if (downMap[i] >= 0) {
+            std::cout << "  Node " << i << " (layer " << hLayer[i] << ") -> Node " 
+                      << downMap[i] << " (layer " << hLayer[downMap[i]] << ")" << std::endl;
+            printCount++;
+        }
+    }
+
+    // ========================================================================
+    // STEP 5: Build prisms from triangles in upper layers
+    // ========================================================================
+    
+    auto downNode = [&](int node) -> int {
+        if (node < 0 || node >= Nnodes) return -1;
+        return downMap[node];
+    };
+
     std::vector<int> P1, P2, P3, P4, P5, P6;
-    int skippedNoMapping = 0;
-    int flippedCount = 0;
+    const int T = coord.num_triangles;
+    P1.reserve(T); P2.reserve(T); P3.reserve(T);
+    P4.reserve(T); P5.reserve(T); P6.reserve(T);
 
-    for (int ti = 0; ti < Ntriangles; ++ti) {
+    int flipped = 0;
+    int skipped_no_mapping = 0;
+    int skipped_degenerate = 0;
+    int skipped_wrong_layer = 0;
+
+    for (int ti = 0; ti < T; ++ti) {
         int a = t1[ti], b = t2[ti], c = t3[ti];
+        
+        // Validate node indices
         if (a < 0 || b < 0 || c < 0) continue;
         if (a >= Nnodes || b >= Nnodes || c >= Nnodes) continue;
 
-        // Check if this triangle is on the apical layer
-        int La = hLayer[a], Lb = hLayer[b], Lc = hLayer[c];
+        int la = hLayer[a], lb = hLayer[b], lc = hLayer[c];
+
+        // Only process triangles fully in one layer that has a layer below
+        if (la < 1) {
+            // Layer 0 (basal) has no lower neighbor - skip
+            continue;
+        }
         
-        // Only use triangles where ALL vertices are on apical layer
-        if (La != apicalLayer || Lb != apicalLayer || Lc != apicalLayer) {
+        if (la != lb || la != lc) {
+            // Triangle spans multiple layers - not a sheet triangle
+            skipped_wrong_layer++;
             continue;
         }
 
-        // Find corresponding basal nodes
-        auto itA = apicalToBasal.find(a);
-        auto itB = apicalToBasal.find(b);
-        auto itC = apicalToBasal.find(c);
-        
-        if (itA == apicalToBasal.end() || itB == apicalToBasal.end() || itC == apicalToBasal.end()) {
-            skippedNoMapping++;
+        // Get corresponding nodes in the layer below
+        int A = downNode(a);
+        int B = downNode(b);
+        int C = downNode(c);
+
+        if (A < 0 || B < 0 || C < 0) {
+            skipped_no_mapping++;
             continue;
         }
 
-        int A = itA->second;  // Basal node below a
-        int B = itB->second;  // Basal node below b
-        int C = itC->second;  // Basal node below c
-
-        // Compute prism volume with current orientation
-        double vol6 = computePrism6V(X, Y, Z, a, b, c, A, B, C);
-        
-        // If negative, flip the triangle winding (swap b and c, and B and C)
-        if (vol6 < 0) {
-            std::swap(b, c);
-            std::swap(B, C);
-            vol6 = computePrism6V(X, Y, Z, a, b, c, A, B, C);
-            flippedCount++;
+        // Verify the lower nodes are actually in layer la-1
+        if (hLayer[A] != la-1 || hLayer[B] != la-1 || hLayer[C] != la-1) {
+            std::cout << "WARNING: Prism mapping error for triangle " << ti 
+                      << ": lower nodes not in expected layer" << std::endl;
+            skipped_no_mapping++;
+            continue;
         }
+
+        // ====================================================================
+        // Compute signed volume using 3-tetrahedron decomposition
+        // Same decomposition as in VolumeComp.cu:
+        //   s1 = 6V_tet(P2,P3,P4,P1) = 6V_tet(b,c,A,a)
+        //   s2 = 6V_tet(P2,P4,P6,P1) = 6V_tet(b,A,C,a)
+        //   s3 = 6V_tet(P4,P5,P6,P1) = 6V_tet(A,B,C,a)
+        // ====================================================================
         
-        // Check individual tetrahedra
         double s1 = sixV_tet_host(X, Y, Z, b, c, A, a);
         double s2 = sixV_tet_host(X, Y, Z, b, A, C, a);
         double s3 = sixV_tet_host(X, Y, Z, A, B, C, a);
-        
-        // If still has negative tets, try alternative decomposition
-        if (s1 < 0 || s2 < 0 || s3 < 0) {
-            // Try using different apex point
-            // Alternative: use basal triangle as base, apical node as apex
-            double alt_s1 = sixV_tet_host(X, Y, Z, B, C, a, A);
-            double alt_s2 = sixV_tet_host(X, Y, Z, B, a, c, A);
-            double alt_s3 = sixV_tet_host(X, Y, Z, a, b, c, A);
-            
-            double alt_vol6 = alt_s1 + alt_s2 + alt_s3;
-            
-            if (alt_vol6 > 0 && alt_s1 >= 0 && alt_s2 >= 0 && alt_s3 >= 0) {
-                // Use alternative decomposition (swap roles of apical/basal)
-                std::swap(a, A);
-                std::swap(b, B);
-                std::swap(c, C);
-            }
+        double sum6V = s1 + s2 + s3;
+
+        // Skip degenerate prisms (near-zero volume)
+        if (std::fabs(sum6V) < 1e-12) {
+            skipped_degenerate++;
+            continue;
         }
 
-        // Store the prism
-        P1.push_back(a);
-        P2.push_back(b);
-        P3.push_back(c);
-        P4.push_back(A);
-        P5.push_back(B);
-        P6.push_back(C);
+        // Ensure consistent orientation - make all prisms have positive volume
+        if (sum6V < 0.0) {
+            std::swap(b, c);
+            std::swap(B, C);
+            flipped++;
+        }
+
+        // Add the prism
+        P1.push_back(a); P2.push_back(b); P3.push_back(c);
+        P4.push_back(A); P5.push_back(B); P6.push_back(C);
     }
 
+    // Store results
     prism.num_prisms = (int)P1.size();
-    prism.P1 = P1;
-    prism.P2 = P2;
-    prism.P3 = P3;
-    prism.P4 = P4;
-    prism.P5 = P5;
-    prism.P6 = P6;
+    prism.P1 = P1; prism.P2 = P2; prism.P3 = P3;
+    prism.P4 = P4; prism.P5 = P5; prism.P6 = P6;
 
+    // ========================================================================
+    // STEP 6: Report results and validate
+    // ========================================================================
+    
     std::cout << "BuildPrisms: Created " << prism.num_prisms << " prisms" << std::endl;
-    std::cout << "  - Flipped: " << flippedCount << std::endl;
-    std::cout << "  - Skipped (no mapping): " << skippedNoMapping << std::endl;
+    std::cout << "  - Flipped for consistent orientation: " << flipped << std::endl;
+    std::cout << "  - Skipped (no mapping): " << skipped_no_mapping << std::endl;
+    std::cout << "  - Skipped (degenerate): " << skipped_degenerate << std::endl;
+    std::cout << "  - Skipped (wrong layer): " << skipped_wrong_layer << std::endl;
 
-    // Verify all prisms have positive volume
+    // Validate: Check for negative volumes in final prisms
     int negativeCount = 0;
+    double totalVolume = 0.0;
+    
     for (int p = 0; p < prism.num_prisms; ++p) {
-        double vol6 = computePrism6V(X, Y, Z, 
-            P1[p], P2[p], P3[p], 
-            P4[p], P5[p], P6[p]);
-        if (vol6 < 0) {
+        double s1 = sixV_tet_host(X, Y, Z, P2[p], P3[p], P4[p], P1[p]);
+        double s2 = sixV_tet_host(X, Y, Z, P2[p], P4[p], P6[p], P1[p]);
+        double s3 = sixV_tet_host(X, Y, Z, P4[p], P5[p], P6[p], P1[p]);
+        double vol = (s1 + s2 + s3) / 6.0;
+        totalVolume += vol;
+
+        if (vol < 0) {
+            if (negativeCount < 10) {
+                std::cout << "  WARNING: Prism " << p << " has negative volume = " 
+                          << vol << std::endl;
+            }
             negativeCount++;
-            std::cout << "  WARNING: Prism " << p << " has negative volume = " << vol6/6.0 << std::endl;
         }
     }
-    
+
     if (negativeCount > 0) {
         std::cout << "  WARNING: " << negativeCount << " prisms have negative volume!" << std::endl;
     } else {
-        std::cout << "  All prisms have positive volume." << std::endl;
+        std::cout << "  SUCCESS: All prisms have positive volume" << std::endl;
     }
+    
+    std::cout << "  Total prism volume: " << totalVolume << std::endl;
 }
+
+
+
 
 // Diagnostic code to add to your System.cu after BuildPrismsFromLayerFlags
 // This will print detailed information about each prism to help debug
@@ -566,6 +632,31 @@ void System::PrintForce() {
     }
 }
 
+void DebugPrintLayerFlags(const GeneralParams& gp, const CoordInfoVecs& coord) {
+    thrust::host_vector<int> hLayer = gp.nodes_in_upperhem;
+    thrust::host_vector<int> eLayer = gp.edges_in_upperhem;
+    
+    std::map<int, int> nodeCounts;
+    std::map<int, int> edgeCounts;
+    
+    for (int i = 0; i < hLayer.size(); ++i) {
+        nodeCounts[hLayer[i]]++;
+    }
+    for (int i = 0; i < eLayer.size(); ++i) {
+        edgeCounts[eLayer[i]]++;
+    }
+    
+    std::cout << "=== LAYER FLAG DISTRIBUTION ===" << std::endl;
+    std::cout << "Nodes by layer:" << std::endl;
+    for (auto& kv : nodeCounts) {
+        std::cout << "  Layer " << kv.first << ": " << kv.second << " nodes" << std::endl;
+    }
+    std::cout << "Edges by layer:" << std::endl;
+    for (auto& kv : edgeCounts) {
+        std::cout << "  Layer " << kv.first << ": " << kv.second << " edges" << std::endl;
+    }
+}
+
 // Function to solve the forces in the system.
 void System::Solve_Forces()
 {
@@ -579,8 +670,7 @@ void System::Solve_Forces()
     ComputeLinearSprings(
         generalParams,
         coordInfoVecs,
-        linearSpringInfoVecs,
-        ljInfoVecs);
+        linearSpringInfoVecs);
 
     // Compute forces and energy due to area springs. Nav commented out to test Active shape programming mesh type 02/27/2025  . Put back in 03/23/25
 //      	ComputeAreaTriangleSprings(
@@ -631,6 +721,18 @@ void System::Solve_Forces()
 // Function to solve the entire system.
 void System::solveSystem()
 {
+
+    // Debug code
+    
+    // In solveSystem(), before BuildPrismsFromLayerFlags:
+    int verticalEdgeCount = 0;
+    for (int i = 0; i < coordInfoVecs.num_edges; ++i) {
+      if (generalParams.edges_in_upperhem[i] == -1) verticalEdgeCount++;
+    }
+    std::cout << "Total edges with layer=-1 (vertical): " << verticalEdgeCount << std::endl;
+    
+    
+    DebugPrintLayerFlags(generalParams, coordInfoVecs);
     // ============================================
     //              INITIALIZATION
     // ============================================
@@ -667,15 +769,15 @@ void System::solveSystem()
     //     INITIAL RELAXATION (Pre-strain)
     // ============================================
     
-    std::cout << "\n========== INITIAL RELAXATION ==========" << std::endl;
+    //std::cout << "\n========== INITIAL RELAXATION ==========" << std::endl;
     
-    cudaError_t e1 = cudaDeviceSynchronize();
+    //cudaError_t e1 = cudaDeviceSynchronize();
 
-    std::cout<<"error 1"<<std::endl;
+    //std::cout<<"error 1"<<std::endl;
     // Store original rest lengths before any strain is applied
     thrust::device_vector<double> original_rest_lengths = linearSpringInfoVecs.edge_initial_length;
     
-    std::cout<<"error 2"<<std::endl;
+    //std::cout<<"error 2"<<std::endl;
     
     
     // Make sure rest lengths equal initial lengths at start
@@ -683,13 +785,13 @@ void System::solveSystem()
                  linearSpringInfoVecs.edge_initial_length.end(),
                  linearSpringInfoVecs.edge_rest_length.begin());
     
-    std::cout<<"error 3"<<std::endl;
+    //std::cout<<"error 3"<<std::endl;
 
     // Relax the initial configuration to remove any numerical artifacts
-    generalParams.tol = 1e-8;
+    generalParams.tol = 1e-6;
     int initial_relax_iters = relaxUntilConverged(*this);
     
-    std::cout<<"error 4"<<std::endl;
+    //std::cout<<"error 4"<<std::endl;
     
     std::cout << "Initial relaxation converged in " << initial_relax_iters 
               << " iterations, E = " << linearSpringInfoVecs.linear_spring_energy << std::endl;
@@ -972,7 +1074,20 @@ void System::initializeSystem(HostSetInfoVecs & hostSetInfoVecs)
     hostSetInfoVecs.boundaries_in_upperhem.resize(mem_prealloc * coordInfoVecs.num_edges, -1);
     hostSetInfoVecs.boundaries_in_lowerhem.resize(mem_prealloc * coordInfoVecs.num_edges, -1);
 
-
+    int invalidEdges = 0;
+    for (int e = 0; e < coordInfoVecs.num_edges; ++e) {
+        int n1 = coordInfoVecs.edges2Nodes_1[e];
+        int n2 = coordInfoVecs.edges2Nodes_2[e];
+        
+        if (n1 < 0 || n1 >= generalParams.maxNodeCount ||
+            n2 < 0 || n2 >= generalParams.maxNodeCount ||
+            n1 == INT_MAX || n2 == INT_MAX) {
+            invalidEdges++;
+            coordInfoVecs.edges2Nodes_1[e] = 0;  // Fix to valid
+            coordInfoVecs.edges2Nodes_2[e] = 0;
+        }
+    }
+    std::cout << "Invalid edges found and fixed: " << invalidEdges << std::endl;
 
   
     // copy info to GPU

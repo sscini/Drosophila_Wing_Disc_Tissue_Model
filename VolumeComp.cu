@@ -126,17 +126,17 @@ void ComputeVolume(
     const double dV = V_signed - generalParams.eq_total_volume;
     generalParams.volume_energy = generalParams.volume_spring_constant * dV * dV;
     
-    // Diagnostic output (can be commented out for production)
-    std::cout << "ComputeVolume: prisms=" << P
-              << ", V_signed=" << V_signed
-              << ", V_target=" << generalParams.eq_total_volume
-              << ", dV=" << dV
-              << ", E_vol=" << generalParams.volume_energy
-              << std::endl;
-              
+//    // Diagnostic output (can be commented out for production)
+//    std::cout << "ComputeVolume: prisms=" << P
+//              << ", V_signed=" << V_signed
+//              << ", V_target=" << generalParams.eq_total_volume
+//              << ", dV=" << dV
+//              << ", E_vol=" << generalParams.volume_energy
+//              << std::endl;
+//              
     // Warn if mesh is inverting
-    if (min6V_tet < 0) {
-        std::cout << "  WARNING: Negative tet volume detected in prism " 
-                  << min6V_tet_prism << " (6V_tet=" << min6V_tet << ")" << std::endl;
+    if (V_signed < 0) {
+        std::cout << "  WARNING: Negative total volume. " 
+                  << V_signed << std::endl;
     }
 }

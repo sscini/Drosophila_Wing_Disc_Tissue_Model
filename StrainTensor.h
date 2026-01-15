@@ -1,94 +1,137 @@
-#pragma once
-/******************************************************************************************************
- *  Spontaneous-strain engine for planar / weak-curvature spring meshes
- *
- *  Implements the axi-symmetric growth tensor ?(x) used in the wing-eversion model.
- *
- *      1) StrainTensorGPU::buildVertexLambda   ? per-vertex bases (e_h,e_R,e_f) and ? tensor
- *      2) StrainTensorGPU::updateEdgeRestLengths ? edge rest lengths from full ? : (e ? e)
- *         (vertical/pillar edges are skipped when edgeLayerFlags == -1)
- *
- *  DV stripe membership is computed independently of layer: all stacks participate in DV.
- *
- *  Author: Navaira Sherwani, 2025
- ******************************************************************************************************/
+#ifndef STRAINTENSOR_H_
+#define STRAINTENSOR_H_
 
+#include "SystemStructures.h"
+#include <thrust/host_vector.h>
 #include <thrust/device_vector.h>
-#include "SystemStructures.h"   // defines CVec3, Mat_3x3, etc.
-#include "System.h"             // GeneralParams, CoordInfoVecs, LinearSpringInfoVecs, ...
 
-/* ================================================================================================ */
-/*  Per-vertex growth field container                                                                */
-/* ================================================================================================ */
+/**
+ * LambdaField: Stores per-vertex strain tensor information
+ * 
+ * This structure holds the decomposed lambda values (?_RR, ?_ff, ?_hh) 
+ * and the local basis vectors (e_R, e_f, e_h) for each vertex.
+ * 
+ * The strain tensor at each vertex is:
+ *   ? = ?_RR * (e_R ? e_R) + ?_ff * (e_f ? e_f) + ?_hh * (e_h ? e_h)
+ * 
+ * Following the Fuhrmann et al. paper:
+ *   ?_RR = ?_iso * ?_aniso
+ *   ?_ff = ?_iso / ?_aniso  (NOTE: division, not multiplication!)
+ *   ?_hh = 1.0 (typically, no strain in thickness direction)
+ */
 struct LambdaField {
-
-    // Orthonormal basis at each vertex
-    thrust::device_vector<CVec3> e_h;     // surface normal
-    thrust::device_vector<CVec3> e_R;     // in-surface radial direction
-    thrust::device_vector<CVec3> e_phi;   // in-surface azimuthal direction
-
-    // Diagonal components of ? in that basis
-    thrust::device_vector<double> lam_rr; // radial      (?_rr = ?_iso * ?_aniso)
-    thrust::device_vector<double> lam_pp; // circumferen. (?_ff = ?_iso / ?_aniso)
-    thrust::device_vector<double> lam_ss; // thickness   (?_hh = 1)
-
-    // Full 3×3 tensor in world coordinates (assembled from basis above)
-    thrust::device_vector<Mat_3x3> lam_alpha;
-
-    // Normalised planar radius ? = r / disc_radius, stored for diagnostics
-    thrust::device_vector<double> rho;
-
-    inline void resize(std::size_t N) {
-        rho.resize(N);
-        lam_rr.resize(N);
-        lam_pp.resize(N);
-        lam_ss.resize(N);
-        e_h.resize(N);
-        e_R.resize(N);
-        e_phi.resize(N);
-        lam_alpha.resize(N);
+    // Per-vertex lambda components
+    thrust::host_vector<double> lambda_RR;      // Radial stretch
+    thrust::host_vector<double> lambda_phiphi;  // Circumferential stretch
+    thrust::host_vector<double> lambda_hh;      // Height/thickness stretch
+    
+    // Per-vertex pathlength (normalized to [0,1])
+    thrust::host_vector<double> pathlength_scaled;
+    
+    // Per-vertex basis vectors: e_R (radial direction in surface)
+    thrust::host_vector<double> e_R_x;
+    thrust::host_vector<double> e_R_y;
+    thrust::host_vector<double> e_R_z;
+    
+    // Per-vertex basis vectors: e_phi (circumferential direction in surface)
+    thrust::host_vector<double> e_phi_x;
+    thrust::host_vector<double> e_phi_y;
+    thrust::host_vector<double> e_phi_z;
+    
+    // Per-vertex basis vectors: e_h (surface normal / height direction)
+    thrust::host_vector<double> e_h_x;
+    thrust::host_vector<double> e_h_y;
+    thrust::host_vector<double> e_h_z;
+    
+    // Resize all vectors to N vertices
+    void resize(int N) {
+        lambda_RR.resize(N);
+        lambda_phiphi.resize(N);
+        lambda_hh.resize(N);
+        pathlength_scaled.resize(N);
+        e_R_x.resize(N); e_R_y.resize(N); e_R_z.resize(N);
+        e_phi_x.resize(N); e_phi_y.resize(N); e_phi_z.resize(N);
+        e_h_x.resize(N); e_h_y.resize(N); e_h_z.resize(N);
     }
 };
 
-/* ================================================================================================ */
-/*  Public GPU interface (wrappers are defined in StrainTensor.cu)                                  */
-/* ================================================================================================ */
+/**
+ * StrainTensorGPU namespace: Functions for computing and applying strain
+ */
 namespace StrainTensorGPU {
 
     /**
-     * Build local bases and ? field at all vertices.
-     * Internally also marks the DV stripe (all layers participate in DV).
-     *
-     * Inputs:
-     *   gp     : General parameters (centers, disc_radius, theta_DV,
-     *            lambda_*_{inDV,outDV}, nodes_in_upperhem (used as edge flags), etc.)
-     *   coord  : Node/edge connectivity and positions
-     *   tFrac  : Pseudo-time fraction (kept for API parity; not used in current kernels)
-     *
-     * Outputs (written on device):
-     *   field.e_* , field.lam_* , field.lam_alpha , gp.rho , gp.nodes_in_DV
+     * computeBasisVectorsAndPathlength
+     * 
+     * Computes the local basis vectors (e_R, e_phi, e_h) and pathlength_scaled
+     * for each vertex, following the Fuhrmann et al. paper methodology.
+     * 
+     * Key features:
+     * - Different center points for DV vs outDV regions
+     * - Pathlength normalized separately within each region
+     * - Basis vectors computed from surface geometry
+     * 
+     * @param generalParams  Contains nodes_in_DV and geometry parameters
+     * @param coordInfoVecs  Contains node positions
+     * @param hostSetInfoVecs Contains nodes_in_DV array
+     * @param lambda         Output: LambdaField with basis vectors and pathlength
+     * @param theta_DV       Angular width of the DV region (radians)
+     * @param R              Radius of the spherical cap
      */
-    void buildVertexLambda(GeneralParams& gp,
-                           CoordInfoVecs& coord,
-                           LambdaField&   field,
-                           double         tFrac);
+    void computeBasisVectorsAndPathlength(
+        GeneralParams& generalParams,
+        CoordInfoVecs& coordInfoVecs,
+        LambdaField& lambda,
+        double theta_DV,
+        double R = 1.0);
 
     /**
-     * Update linear-spring rest lengths by projecting the full ? tensor on each edge.
-     * Vertical/pillar edges are not modified (they are identified by edgeLayerFlags == -1
-     * which you provide in gp.edges_in_upperhem for this call).
+     * buildVertexLambda
+     * 
+     * Computes the lambda values (?_RR, ?_ff, ?_hh) for each vertex
+     * based on the pathlength and region (DV vs outDV).
+     * 
+     * Uses linear interpolation: ?(p) = center + (edge - center) * p
+     * where p = pathlength_scaled ? [0, 1]
+     * 
+     * @param generalParams  Contains lambda center/edge values for each region
+     * @param coordInfoVecs  Contains node positions
+     * @param lambda         LambdaField with pathlength (input) and lambda values (output)
+     * @param hostSetInfoVecs Contains nodes_in_DV array
+     * @param frac           Fraction of strain to apply (for quasi-static loading)
      */
-    void updateEdgeRestLengths(CoordInfoVecs&        coord,
-                               GeneralParams&        gp,
-                               const LambdaField&    field,
-                               LinearSpringInfoVecs& lsInfo,
-                               int                   targetLayer /*kept for compatibility*/);
+    void buildVertexLambda(
+        GeneralParams& generalParams,
+        CoordInfoVecs& coordInfoVecs,
+        LambdaField& lambda,
+        double frac = 1.0);
 
-    // Optional bending term (not used in your current runs). Declaration left for ABI compatibility.
-    void updatePreferredAngles(BendingTriangleInfoVecs&  btiv,
-                               const CoordInfoVecs&      coord,
-                               const LambdaField&        field,
-                               const GeneralParams&      gp,
-                               const LinearSpringInfoVecs& lsInfo);
+    /**
+     * updateEdgeRestLengths
+     * 
+     * Computes the target rest lengths for each edge based on the strain tensor.
+     * 
+     * For each edge:
+     *   1. Get the spring vector v = (x2-x1, y2-y1, z2-z1)
+     *   2. Average the lambda tensors at the two endpoints
+     *   3. Transform the spring vector: v' = ?_avg · v
+     *   4. New rest length = |v'|
+     * 
+     * @param coordInfoVecs  Contains node positions and edge connectivity
+     * @param generalParams  Contains layer flags
+     * @param lambda         LambdaField with lambda values and basis vectors
+     * @param linearSpringInfoVecs  Contains edge_initial_length, edge_final_length
+     * @param hostSetInfoVecs Contains edge layer information
+     * @param layerflag      Which layer to apply strain to (-1 = all, 0 = basal, etc.)
+     */
+    void updateEdgeRestLengths(
+        CoordInfoVecs& coordInfoVecs,
+        GeneralParams& generalParams,
+        LambdaField& lambda,
+        LinearSpringInfoVecs& linearSpringInfoVecs,
+        int layerflag = -1);
 
 } // namespace StrainTensorGPU
+
+#endif /* STRAINTENSOR_H_ */
+

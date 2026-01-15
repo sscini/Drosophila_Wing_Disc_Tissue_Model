@@ -1,478 +1,383 @@
-// StrainTensor.cu  — DV-aware basis construction and rest-length projection
-//
-// Spontaneous strain tensor ? = ?_rr (e_R ? e_R) + ?_ff (e_f ? e_f) + ?_hh (e_h ? e_h)
-// with ?_rr = ?_iso * ?_aniso,  ?_ff = ?_iso / ?_aniso,  ?_hh = 1.
-//
-// Inside the DV stripe:
-//   - e_R is the *radial* direction away from the line segment joining O_D and O_V
-//     (the DV boundary line).
-//   - Only radial strain is applied: ?_rr as scheduled, ?_pp = 1, ?_ss = 1.
-// Outside the DV stripe:
-//   - e_R is constructed as before using OA from OD (dorsal) or OV (ventral),
-//     with side decided by a fixed in-plane vector perpendicular to the DV axis.
-//
-// Vertical/pillar edges are flagged as -1 and are not altered in the rest-length update.
-
 #include "StrainTensor.h"
-#include "SystemStructures.h"
-#include "System.h"
-
-#include <cuda_runtime.h>
-#include <thrust/tuple.h>
-#include <thrust/device_vector.h>
-#include <thrust/iterator/counting_iterator.h>
-#include <thrust/sequence.h>
 #include <cmath>
-
-#define BLOCK_SZ 256
-
-// ------------ tuple helpers -----------------
-template<int I>  __host__ __device__
-inline double c(const CVec3& v) { return thrust::get<I>(v); }
-
-__host__ __device__
-inline Mat_3x3 outer(const CVec3& a, const CVec3& b) {
-    return Mat_3x3(
-        CVec3( c<0>(a)*c<0>(b), c<0>(a)*c<1>(b), c<0>(a)*c<2>(b) ),
-        CVec3( c<1>(a)*c<0>(b), c<1>(a)*c<1>(b), c<1>(a)*c<2>(b) ),
-        CVec3( c<2>(a)*c<0>(b), c<2>(a)*c<1>(b), c<2>(a)*c<2>(b) )
-    );
-}
-
-__host__ __device__
-inline void axpy(double s, const Mat_3x3& A, Mat_3x3& C) {
-    // row 0
-    {
-        CVec3 r = thrust::get<0>(C);
-        CVec3 a = thrust::get<0>(A);
-        thrust::get<0>(r) += s * c<0>(a);
-        thrust::get<1>(r) += s * c<1>(a);
-        thrust::get<2>(r) += s * c<2>(a);
-        thrust::get<0>(C)   = r;
-    }
-    // row 1
-    {
-        CVec3 r = thrust::get<1>(C);
-        CVec3 a = thrust::get<1>(A);
-        thrust::get<0>(r) += s * c<0>(a);
-        thrust::get<1>(r) += s * c<1>(a);
-        thrust::get<2>(r) += s * c<2>(a);
-        thrust::get<1>(C)   = r;
-    }
-    // row 2
-    {
-        CVec3 r = thrust::get<2>(C);
-        CVec3 a = thrust::get<2>(A);
-        thrust::get<0>(r) += s * c<0>(a);
-        thrust::get<1>(r) += s * c<1>(a);
-        thrust::get<2>(r) += s * c<2>(a);
-        thrust::get<2>(C)   = r;
-    }
-}
-
-__host__ __device__
-inline CVec3 matVec(const Mat_3x3& M, const CVec3& v) {
-    return CVec3(
-        c<0>( thrust::get<0>(M) )*c<0>(v) + c<1>( thrust::get<0>(M) )*c<1>(v) + c<2>( thrust::get<0>(M) )*c<2>(v),
-        c<0>( thrust::get<1>(M) )*c<0>(v) + c<1>( thrust::get<1>(M) )*c<1>(v) + c<2>( thrust::get<1>(M) )*c<2>(v),
-        c<0>( thrust::get<2>(M) )*c<0>(v) + c<1>( thrust::get<2>(M) )*c<1>(v) + c<2>( thrust::get<2>(M) )*c<2>(v)
-    );
-}
-
-__host__ __device__
-inline double norm3(const CVec3& v) {
-    return sqrt(thrust::get<0>(v)*thrust::get<0>(v) +
-                thrust::get<1>(v)*thrust::get<1>(v) +
-                thrust::get<2>(v)*thrust::get<2>(v)) + 1e-14;
-}
-
-__host__ __device__
-inline CVec3 normalize(const CVec3& v) {
-    double n = norm3(v);
-    return CVec3( c<0>(v)/n, c<1>(v)/n, c<2>(v)/n );
-}
-
-__host__ __device__
-inline CVec3 cross(const CVec3& a, const CVec3& b) {
-    return CVec3(
-        c<1>(a)*c<2>(b) - c<2>(a)*c<1>(b),
-        c<2>(a)*c<0>(b) - c<0>(a)*c<2>(b),
-        c<0>(a)*c<1>(b) - c<1>(a)*c<0>(b)
-    );
-}
-
-__host__ __device__
-inline double dot3(const CVec3& a, const CVec3& b) {
-    return c<0>(a)*c<0>(b) + c<1>(a)*c<1>(b) + c<2>(a)*c<2>(b);
-}
-
-// ============================================================================
-// Mark DV stripe (independent of layer).
-// Stripe is |x - centerX| <= R * sin(theta_DV/2).
-// ============================================================================
-
-__global__
-void k_markDVstripe(int N,
-                    const double* x,
-                    double centerX, double R, double thetaDV,
-                    const int* /*isUpper, unused for gating*/,
-                    int* DVflag)
-{
-    int i = blockIdx.x*blockDim.x + threadIdx.x;
-    if (i>=N) return;
-
-    double halfw = R * sin(0.5*thetaDV);
-    DVflag[i] = (fabs(x[i] - centerX) <= halfw) ? 1 : 0;
-}
-
-// ============================================================================
-// Build local basis vectors (e_h, e_R, e_phi) at every vertex
-// DV-aware variant:
-//   - inside DV stripe: e_R is radial away from the O_D–O_V line segment
-//   - outside stripe:   e_R from OD/OV edge-centers on the appropriate side
-// ============================================================================
-
-__global__
-void k_buildBasis_DVaware(
-                  int N,
-                  const double* x, const double *y, const double *z,
-                  // sphere center for e_h (normal)
-                  double s_cx, double s_cy, double s_cz,
-                  // legacy disc center (kept for ABI; not used here)
-                  double /*cx*/, double /*cy*/, double /*cz*/,
-                  // DV axis endpoints (edge-to-edge through the stripe)
-                  CVec3 DV_A, CVec3 DV_B,
-                  // Dorsal/Ventral edge-center origins
-                  CVec3 O_D, CVec3 O_V,
-                  // outputs
-                  const int* DVflag,
-                  CVec3* e_h,
-                  CVec3* e_R,
-                  CVec3* e_phi)
-{
-    int i = blockIdx.x*blockDim.x + threadIdx.x;
-    if (i>=N) return;
-
-    // -------- per-vertex position
-    CVec3 P(x[i], y[i], z[i]);
-
-    // -------- surface normal e_h (use true sphere center)
-    CVec3 PS = CVec3(x[i]-s_cx, y[i]-s_cy, z[i]-s_cz);
-    CVec3 eh = normalize(PS);
-    e_h[i] = eh;
-
-    // -------- constant (global) DV axis and its in-plane perpendicular
-    CVec3 u = normalize( CVec3( c<0>(DV_B)-c<0>(DV_A),
-                                 c<1>(DV_B)-c<1>(DV_A),
-                                 c<2>(DV_B)-c<2>(DV_A) ) );   // axis along stripe
-
-    CVec3 Omid = CVec3( 0.5*(c<0>(DV_A)+c<0>(DV_B)),
-                        0.5*(c<1>(DV_A)+c<1>(DV_B)),
-                        0.5*(c<2>(DV_A)+c<2>(DV_B)) );
-
-    // disc normal (approx) from sphere center to DV mid
-    CVec3 n_disc = normalize( CVec3( c<0>(Omid)-s_cx, c<1>(Omid)-s_cy, c<2>(Omid)-s_cz ) );
-
-    // in-plane perpendicular to u, pointing from DV axis toward (say) Ventral
-    CVec3 v_perp = normalize( cross(n_disc, u) );  // n×u -> in-plane, ? to u
-
-    // -------- choose construction by region
-    CVec3 eR;
-    if (DVflag[i]) {
-        // ---------------------------------------------------------
-        // Inside the DV stripe:
-        //   - Define e_R as the radial direction away from the line
-        //     segment joining O_D and O_V (DV boundary line).
-        //   - Line parameterization: O_D + t*(O_V - O_D),  t?[0,1].
-        // ---------------------------------------------------------
-        CVec3 ODOV = CVec3(
-            c<0>(O_V) - c<0>(O_D),
-            c<1>(O_V) - c<1>(O_D),
-            c<2>(O_V) - c<2>(O_D)
-        );
-
-        double denom = dot3(ODOV, ODOV) + 1e-14; // avoid divide-by-zero
-        CVec3 w = CVec3(
-            c<0>(P) - c<0>(O_D),
-            c<1>(P) - c<1>(O_D),
-            c<2>(P) - c<2>(O_D)
-        );
-
-        // Projection parameter of P onto the O_D–O_V line
-        double t = dot3(w, ODOV) / denom;
-        // Clamp to the finite segment between O_D and O_V
-        if (t < 0.0) t = 0.0;
-        else if (t > 1.0) t = 1.0;
-
-        // Closest point on the DV boundary line
-        CVec3 Cline = CVec3(
-            c<0>(O_D) + t * c<0>(ODOV),
-            c<1>(O_D) + t * c<1>(ODOV),
-            c<2>(O_D) + t * c<2>(ODOV)
-        );
-
-        // Radial direction away from the DV boundary line
-        CVec3 radial = CVec3(
-            c<0>(P) - c<0>(Cline),
-            c<1>(P) - c<1>(Cline),
-            c<2>(P) - c<2>(Cline)
-        );
-
-        // Remove any normal component so e_R stays in-surface
-        double hdot = dot3(eh, radial);
-        CVec3 radial_tan = CVec3(
-            c<0>(radial) - hdot * c<0>(eh),
-            c<1>(radial) - hdot * c<1>(eh),
-            c<2>(radial) - hdot * c<2>(eh)
-        );
-
-        eR = normalize(radial_tan);
-    } else {
-        // Outside stripe: decide side by signed distance along v_perp
-        double sgn = dot3(
-            CVec3( c<0>(P)-c<0>(Omid),
-                   c<1>(P)-c<1>(Omid),
-                   c<2>(P)-c<2>(Omid) ),
-            v_perp
-        );
-
-        CVec3 O = (sgn >= 0.0) ? O_V : O_D;  // +side -> Ventral, -side -> Dorsal
-
-        // OA from region origin, projected to tangent plane, normalized
-        CVec3 OA = CVec3( c<0>(P)-c<0>(O), c<1>(P)-c<1>(O), c<2>(P)-c<2>(O) );
-        double hdot = dot3(eh, OA);
-        CVec3 OA_tan = CVec3(
-            c<0>(OA) - hdot*c<0>(eh),
-            c<1>(OA) - hdot*c<1>(eh),
-            c<2>(OA) - hdot*c<2>(eh)
-        );
-        eR = normalize(OA_tan);
-    }
-
-    e_R[i] = eR;
-    // right-handed complement
-    CVec3 ephi = normalize( cross(eh, eR) );
-    e_phi[i] = ephi;
-}
-
-// ============================================================================
-// Build ? at vertices
-// ? := radial distance from disc centre in the plane, normalized by disc radius.
-// ============================================================================
-
-__global__
-void k_buildLambda(int    N,
-                   const double *x, const double *y, const double *z,
-                   double cx, double cy, double cz,
-                   // outDV schedule
-                   double lam_iso_outDV_center,   double lam_iso_outDV_edge,
-                   double lam_aniso_outDV_center, double lam_aniso_outDV_edge,
-                   // inDV schedule
-                   double lam_iso_inDV_center,    double lam_iso_inDV_edge,
-                   double lam_aniso_inDV_center,  double lam_aniso_inDV_edge,
-                   // geometry
-                   double disc_radius,
-                   // outputs / work
-                   double *rho,
-                   double *lam_rr, double *lam_pp, double *lam_ss,
-                   const CVec3* e_R, const CVec3* e_phi, const CVec3* e_h,
-                   Mat_3x3* lam_alpha,
-                   const int * /*layerFlag*/,
-                   const int * DVflag)
-{
-    int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid >= N) return;
-
-    // radial coordinate (flat projection from disc centre)
-    double dx = x[tid] - cx;
-    double dy = y[tid] - cy;
-    (void)z; (void)cz;
-    double r = sqrt(dx*dx + dy*dy) + 1e-14;
-    double p = (disc_radius > 0.0) ? (r / disc_radius) : 0.0;
-    p = (p < 0.0) ? 0.0 : ((p > 1.0) ? 1.0 : p);
-    rho[tid] = p;
-
-    // choose schedule
-    const bool inDV = (DVflag[tid] != 0);
-
-    double lamIso = inDV ?
-        (lam_iso_inDV_center    + (lam_iso_inDV_edge    - lam_iso_inDV_center)   * (p*p)) :
-        (lam_iso_outDV_center   + (lam_iso_outDV_edge   - lam_iso_outDV_center)  * (p*p));
-
-    double lamAni = inDV ?
-        (lam_aniso_inDV_center  + (lam_aniso_inDV_edge  - lam_aniso_inDV_center) * (p*p)) :
-        (lam_aniso_outDV_center + (lam_aniso_outDV_edge - lam_aniso_outDV_center)* (p*p));
-
-    lam_rr[tid] = lamIso * lamAni;
-    lam_pp[tid] = lamIso / lamAni;
-    lam_ss[tid] = 1.0; // no through-thickness growth
-
-    // Inside DV stripe: only radial strain; kill tangential strain
-    if (inDV) {
-        lam_pp[tid] = 1.0;
-    }
-
-    // assemble tensor
-    Mat_3x3 L = Mat_3x3{ CVec3(0,0,0), CVec3(0,0,0), CVec3(0,0,0) };
-    axpy(lam_rr[tid], outer(e_R [tid], e_R [tid]), L);
-    axpy(lam_pp[tid], outer(e_phi[tid], e_phi[tid]), L);
-    axpy(lam_ss[tid], outer(e_h  [tid], e_h  [tid]), L);
-    lam_alpha[tid] = L;
-}
-
-// ============================================================================
-// Rest-length update by full projection of ? onto the edge direction.
-// Vertical edges are flagged as -1 and are skipped.
-// ============================================================================
-
-__global__
-void k_edgeRestProj(int    E,
-                    const int    *e2n1,  const int *e2n2,
-                    const double *x,     const double *y,   const double *z,
-                    const Mat_3x3 *lam_alpha,
-                    double *L0, double *Lstar,
-                    const int *edgeLayerFlags) // -1 ? vertical/pillar
-{
-    int eid = blockIdx.x*blockDim.x + threadIdx.x;
-    if (eid >= E) return;
-
-    // Do not alter vertical/pillar edges. Layer flag = -1.
-    if (edgeLayerFlags[eid] == -1) return;
-
-    int a = e2n1[eid];
-    int b = e2n2[eid];
-
-    CVec3 dX = CVec3(x[a]-x[b], y[a]-y[b], z[a]-z[b]);
-    L0[eid] = norm3(dX);
-
-    // average tensor at edge endpoints
-    Mat_3x3 La = lam_alpha[a], Lb = lam_alpha[b], Lp;
-
-    thrust::get<0>(Lp) = CVec3(
-        0.5*( c<0>(thrust::get<0>(La)) + c<0>(thrust::get<0>(Lb)) ),
-        0.5*( c<1>(thrust::get<0>(La)) + c<1>(thrust::get<0>(Lb)) ),
-        0.5*( c<2>(thrust::get<0>(La)) + c<2>(thrust::get<0>(Lb)) ) );
-
-    thrust::get<1>(Lp) = CVec3(
-        0.5*( c<0>(thrust::get<1>(La)) + c<0>(thrust::get<1>(Lb)) ),
-        0.5*( c<1>(thrust::get<1>(La)) + c<1>(thrust::get<1>(Lb)) ),
-        0.5*( c<2>(thrust::get<1>(La)) + c<2>(thrust::get<1>(Lb)) ) );
-
-    thrust::get<2>(Lp) = CVec3(
-        0.5*( c<0>(thrust::get<2>(La)) + c<0>(thrust::get<2>(Lb)) ),
-        0.5*( c<1>(thrust::get<2>(La)) + c<1>(thrust::get<2>(Lb)) ),
-        0.5*( c<2>(thrust::get<2>(La)) + c<2>(thrust::get<2>(Lb)) ) );
-
-    CVec3 dX_stretch = matVec(Lp, dX);
-    Lstar[eid] = norm3(dX_stretch);
-}
-
-// ============================================================================
-// Public wrappers
-// ============================================================================
+#include <iostream>
+#include <algorithm>
 
 namespace StrainTensorGPU {
 
-void buildVertexLambda(GeneralParams& gp,
-                       CoordInfoVecs& coord,
-                       LambdaField&   field,
-                       double         tFrac /*unused but kept for API parity*/)
-{
-    // size guards
-    if (field.lam_rr.size() != coord.nodeLocX.size())
-        field.resize(coord.nodeLocX.size());
-    if (gp.rho.size() != coord.nodeLocX.size())
-        gp.rho.resize(coord.nodeLocX.size());
-
-    const int N = static_cast<int>(coord.nodeLocX.size());
-    dim3 grid((N + BLOCK_SZ - 1) / BLOCK_SZ);
-
-    // allocate (once) the DV mask
-    if (gp.nodes_in_DV.size() != N) gp.nodes_in_DV.resize(N);
-
-    // --- mark DV stripe: all layers participate in DV ---
-    k_markDVstripe<<<grid,BLOCK_SZ>>>(
-        N,
-        thrust::raw_pointer_cast(coord.nodeLocX.data()),
-        gp.centerX,
-        gp.disc_radius,      // radius used for stripe half-width
-        gp.theta_DV,         // DV angular width (radians)
-        thrust::raw_pointer_cast(gp.nodes_in_upperhem.data()), // kept for ABI
-        thrust::raw_pointer_cast(gp.nodes_in_DV.data()) );
-    cudaDeviceSynchronize();
-
-    // Precompute constant tuples for the DV-aware basis kernel
-    CVec3 DV_A(gp.DV_ax, gp.DV_ay, gp.DV_az);
-    CVec3 DV_B(gp.DV_bx, gp.DV_by, gp.DV_bz);
-    CVec3 O_D(gp.ODx,    gp.ODy,    gp.ODz);
-    CVec3 O_V(gp.OVx,    gp.OVy,    gp.OVz);
-
-    // --- build local bases on every vertex (DV-aware) ---
-    k_buildBasis_DVaware<<<grid,BLOCK_SZ>>>(
-        N,
-        thrust::raw_pointer_cast(coord.nodeLocX.data()),
-        thrust::raw_pointer_cast(coord.nodeLocY.data()),
-        thrust::raw_pointer_cast(coord.nodeLocZ.data()),
-        gp.c_dx, gp.c_dy, gp.c_dz,          // sphere center FOR e_h
-        gp.centerX, gp.centerY, gp.centerZ, // (kept for ABI, not used here)
-        DV_A, DV_B, O_D, O_V,
-        thrust::raw_pointer_cast(gp.nodes_in_DV.data()),
-        thrust::raw_pointer_cast(field.e_h.data()),
-        thrust::raw_pointer_cast(field.e_R.data()),
-        thrust::raw_pointer_cast(field.e_phi.data()) );
-    cudaDeviceSynchronize();
-
-    // --- build ? field (uses DV mask & the basis we just built) ---
-    k_buildLambda<<<grid,BLOCK_SZ>>>(
-        N,
-        thrust::raw_pointer_cast(coord.nodeLocX.data()),
-        thrust::raw_pointer_cast(coord.nodeLocY.data()),
-        thrust::raw_pointer_cast(coord.nodeLocZ.data()),
-        gp.centerX, gp.centerY, gp.centerZ,
-        // outDV
-        gp.lambda_iso_center_outDV,   gp.lambda_iso_edge_outDV,
-        gp.lambda_aniso_center_outDV, gp.lambda_aniso_edge_outDV,
-        // inDV
-        gp.lambda_iso_center_inDV,    gp.lambda_iso_edge_inDV,
-        gp.lambda_aniso_center_inDV,  gp.lambda_aniso_edge_inDV,
-        // geometry
-        gp.disc_radius,
-        // outputs
-        thrust::raw_pointer_cast(gp.rho.data()),
-        thrust::raw_pointer_cast(field.lam_rr.data()),
-        thrust::raw_pointer_cast(field.lam_pp.data()),
-        thrust::raw_pointer_cast(field.lam_ss.data()),
-        thrust::raw_pointer_cast(field.e_R.data()),
-        thrust::raw_pointer_cast(field.e_phi.data()),
-        thrust::raw_pointer_cast(field.e_h.data()),
-        thrust::raw_pointer_cast(field.lam_alpha.data()),
-        thrust::raw_pointer_cast(gp.nodes_in_upperhem.data()), // not used to gate DV
-        thrust::raw_pointer_cast(gp.nodes_in_DV.data()) );
-    cudaDeviceSynchronize();
+/**
+ * Helper function: Convert Cartesian to spherical coordinates
+ */
+static void cart2sph(double x, double y, double z, double& r, double& theta, double& phi) {
+    r = std::sqrt(x*x + y*y + z*z);
+    if (r < 1e-10) {
+        theta = 0.0;
+        phi = 0.0;
+        return;
+    }
+    theta = std::acos(z / r);  // polar angle from +z axis
+    phi = std::atan2(y, x);     // azimuthal angle
 }
 
-void updateEdgeRestLengths(CoordInfoVecs&  coord,
-                           GeneralParams&  gp,
-                           const LambdaField& field,
-                           LinearSpringInfoVecs& lsInfo,
-                           int /*targetLayer, unused now*/)
-{
-    const int E = static_cast<int>(coord.num_edges);
-    dim3 grid((E + BLOCK_SZ - 1) / BLOCK_SZ);
+/**
+ * Helper function: Convert spherical to Cartesian coordinates
+ */
+static void sph2cart(double r, double theta, double phi, double& x, double& y, double& z) {
+    x = r * std::sin(theta) * std::cos(phi);
+    y = r * std::sin(theta) * std::sin(phi);
+    z = r * std::cos(theta);
+}
 
-    k_edgeRestProj<<<grid,BLOCK_SZ>>>(
-        E,
-        thrust::raw_pointer_cast(coord.edges2Nodes_1.data()),
-        thrust::raw_pointer_cast(coord.edges2Nodes_2.data()),
-        thrust::raw_pointer_cast(coord.nodeLocX.data()),
-        thrust::raw_pointer_cast(coord.nodeLocY.data()),
-        thrust::raw_pointer_cast(coord.nodeLocZ.data()),
-        thrust::raw_pointer_cast(field.lam_alpha.data()),
-        thrust::raw_pointer_cast(lsInfo.edge_initial_length.data()),
-        thrust::raw_pointer_cast(lsInfo.edge_final_length.data()),
-        thrust::raw_pointer_cast(gp.edges_in_upperhem.data())   // here: -1 denotes vertical edges
-    );
-    cudaDeviceSynchronize();
+/**
+ * Helper function: Compute arc distance on sphere between two points
+ */
+static double arcDistOnSphere(double x1, double y1, double z1, 
+                               double x2, double y2, double z2, double R) {
+    double dot = (x1*x2 + y1*y2 + z1*z2) / (R*R);
+    // Clamp for numerical safety
+    dot = std::max(-1.0, std::min(1.0, dot));
+    return R * std::acos(dot);
+}
+
+/**
+ * Helper function: Normalize a 3D vector in place
+ */
+static void normalize3(double& x, double& y, double& z) {
+    double len = std::sqrt(x*x + y*y + z*z);
+    if (len > 1e-10) {
+        x /= len;
+        y /= len;
+        z /= len;
+    }
+}
+
+void computeBasisVectorsAndPathlength(
+    GeneralParams& generalParams,
+    CoordInfoVecs& coordInfoVecs,
+    LambdaField& lambda,
+    double theta_DV,
+    double R)
+{
+    const int N = static_cast<int>(coordInfoVecs.nodeLocX.size());
+    
+    std::cout << "Computing basis vectors and pathlength for " << N << " nodes..." << std::endl;
+    std::cout << "  theta_DV = " << theta_DV << " rad, R = " << R << std::endl;
+    
+    // Resize lambda field
+    lambda.resize(N);
+    
+    // First pass: compute pathlength (unnormalized) and basis vectors
+    double max_pathlength_inDV = 0.0;
+    double max_pathlength_outDV = 0.0;
+    
+    for (int i = 0; i < N; i++) {
+        double x = coordInfoVecs.nodeLocX[i];
+        double y = coordInfoVecs.nodeLocY[i];
+        double z = coordInfoVecs.nodeLocZ[i];
+        double r = std::sqrt(x*x + y*y + z*z);
+        
+        if (r < 1e-10) r = 1e-10;  // Avoid division by zero
+        
+        // ========================================
+        // 1. Surface normal (e_h) - points radially outward for spherical cap
+        // ========================================
+        lambda.e_h_x[i] = x / r;
+        lambda.e_h_y[i] = y / r;
+        lambda.e_h_z[i] = z / r;
+        
+        // ========================================
+        // 2. Determine if point is inside DV region
+        // ========================================
+        // DV boundary is defined by |x| <= R * sin(theta_DV / 2)
+        double DV_boundary = R * std::sin(theta_DV / 2.0);
+        bool inDV = (std::abs(x) <= DV_boundary);
+        
+        // Update nodes_in_DV if it exists and has correct size
+        if (coordInfoVecs.nodes_in_DV.size() == static_cast<size_t>(N)) {
+            coordInfoVecs.nodes_in_DV[i] = inDV ? 1 : 0;
+        }
+        
+        // ========================================
+        // 3. Compute center point for pathlength calculation
+        // ========================================
+        double cx, cy, cz;
+        
+        if (inDV) {
+            // Inside DV: center is on the DV midline (y=0 plane)
+            // Project point onto y=0 plane while staying on sphere
+            cx = x;
+            cy = 0.0;
+            double temp = R*R - x*x;
+            cz = (temp > 0) ? std::sqrt(temp) : 0.0;
+        } else {
+            // Outside DV: center is at the DV boundary edge
+            // This is a point at angle theta_DV/2 from the pole
+            double sign_x = (x >= 0) ? 1.0 : -1.0;
+            double theta_center = theta_DV / 2.0;
+            cx = R * std::sin(theta_center) * sign_x;
+            cy = 0.0;
+            cz = R * std::cos(theta_center);
+        }
+        
+        // ========================================
+        // 4. Compute pathlength: arc distance from center
+        // ========================================
+        double pathlength = arcDistOnSphere(x, y, z, cx, cy, cz, R);
+        lambda.pathlength_scaled[i] = pathlength;  // Will normalize later
+        
+        // Track max pathlength for normalization
+        if (inDV) {
+            max_pathlength_inDV = std::max(max_pathlength_inDV, pathlength);
+        } else {
+            max_pathlength_outDV = std::max(max_pathlength_outDV, pathlength);
+        }
+        
+        // ========================================
+        // 5. Compute e_R: in-surface radial direction pointing away from center
+        // ========================================
+        // e_OA = (position - center) / |position - center|
+        double oax = x - cx;
+        double oay = y - cy;
+        double oaz = z - cz;
+        normalize3(oax, oay, oaz);
+        
+        // Project onto surface: e_R = e_OA - (e_h · e_OA) * e_h
+        double eh_dot_eoa = lambda.e_h_x[i]*oax + lambda.e_h_y[i]*oay + lambda.e_h_z[i]*oaz;
+        double er_x = oax - eh_dot_eoa * lambda.e_h_x[i];
+        double er_y = oay - eh_dot_eoa * lambda.e_h_y[i];
+        double er_z = oaz - eh_dot_eoa * lambda.e_h_z[i];
+        normalize3(er_x, er_y, er_z);
+        
+        lambda.e_R_x[i] = er_x;
+        lambda.e_R_y[i] = er_y;
+        lambda.e_R_z[i] = er_z;
+        
+        // ========================================
+        // 6. Compute e_phi: circumferential direction = e_h × e_R
+        // ========================================
+        lambda.e_phi_x[i] = lambda.e_h_y[i] * er_z - lambda.e_h_z[i] * er_y;
+        lambda.e_phi_y[i] = lambda.e_h_z[i] * er_x - lambda.e_h_x[i] * er_z;
+        lambda.e_phi_z[i] = lambda.e_h_x[i] * er_y - lambda.e_h_y[i] * er_x;
+    }
+    
+    // ========================================
+    // Second pass: normalize pathlength separately for DV and outDV
+    // ========================================
+    std::cout << "  Max pathlength inDV: " << max_pathlength_inDV 
+              << ", outDV: " << max_pathlength_outDV << std::endl;
+    
+    int count_inDV = 0, count_outDV = 0;
+    for (int i = 0; i < N; i++) {
+        bool inDV = false;
+        if (coordInfoVecs.nodes_in_DV.size() == static_cast<size_t>(N)) {
+            inDV = (hostSetInfoVecs.nodes_in_DV[i] == 1);
+        } else {
+            // Fallback: check x coordinate
+            double x = coordInfoVecs.nodeLocX[i];
+            double DV_boundary = R * std::sin(theta_DV / 2.0);
+            inDV = (std::abs(x) <= DV_boundary);
+        }
+        
+        if (inDV && max_pathlength_inDV > 1e-10) {
+            lambda.pathlength_scaled[i] /= max_pathlength_inDV;
+            count_inDV++;
+        } else if (!inDV && max_pathlength_outDV > 1e-10) {
+            lambda.pathlength_scaled[i] /= max_pathlength_outDV;
+            count_outDV++;
+        }
+    }
+    
+    std::cout << "  Nodes in DV: " << count_inDV << ", nodes in outDV: " << count_outDV << std::endl;
+}
+
+void buildVertexLambda(
+    GeneralParams& generalParams,
+    CoordInfoVecs& coordInfoVecs,
+    LambdaField& lambda,
+    double frac)
+{
+    const int N = static_cast<int>(coordInfoVecs.nodeLocX.size());
+    
+    std::cout << "Building vertex lambda values for " << N << " nodes (frac = " << frac << ")..." << std::endl;
+    
+    // Ensure lambda vectors are properly sized
+    if (lambda.lambda_RR.size() != static_cast<size_t>(N)) {
+        lambda.resize(N);
+    }
+    
+    int count_inDV = 0, count_outDV = 0;
+    double avg_lambda_iso = 0, avg_lambda_aniso = 0;
+    
+    for (int i = 0; i < N; i++) {
+        // Get normalized pathlength (should be in [0, 1])
+        double p = lambda.pathlength_scaled[i];
+        p = std::max(0.0, std::min(1.0, p));  // Clamp just in case
+        
+        // Determine if in DV region
+        bool inDV = false;
+        if (coordInfoVecs.nodes_in_DV.size() == static_cast<size_t>(N)) {
+            inDV = (hostSetInfoVecs.nodes_in_DV[i] == 1);
+        }
+        
+        double lambda_iso, lambda_aniso;
+        
+        if (inDV) {
+            // Inside DV: use inDV lambda parameters
+            // Linear interpolation: ?(p) = center + (edge - center) * p
+            lambda_iso = generalParams.lambda_iso_center_inDV + 
+                        (generalParams.lambda_iso_edge_inDV - generalParams.lambda_iso_center_inDV) * p;
+            lambda_aniso = generalParams.lambda_aniso_center_inDV + 
+                          (generalParams.lambda_aniso_edge_inDV - generalParams.lambda_aniso_center_inDV) * p;
+            count_inDV++;
+        } else {
+            // Outside DV: use outDV lambda parameters
+            lambda_iso = generalParams.lambda_iso_center_outDV + 
+                        (generalParams.lambda_iso_edge_outDV - generalParams.lambda_iso_center_outDV) * p;
+            lambda_aniso = generalParams.lambda_aniso_center_outDV + 
+                          (generalParams.lambda_aniso_edge_outDV - generalParams.lambda_aniso_center_outDV) * p;
+            count_outDV++;
+        }
+        
+        // Apply fractional strain for quasi-static loading
+        // ?_applied = 1 + frac * (?_target - 1)
+        lambda_iso = 1.0 + frac * (lambda_iso - 1.0);
+        lambda_aniso = 1.0 + frac * (lambda_aniso - 1.0);
+        
+        // ========================================
+        // Convert to directional components (PAPER'S FORMULA!)
+        // ========================================
+        // ?_RR = ?_iso * ?_aniso (stretch in radial direction)
+        // ?_ff = ?_iso / ?_aniso (stretch in circumferential direction) - NOTE: DIVISION!
+        // ?_hh = 1.0 (no stretch in height direction)
+        
+        lambda.lambda_RR[i] = lambda_iso * lambda_aniso;
+        lambda.lambda_phiphi[i] = lambda_iso / lambda_aniso;  // CRITICAL: division, not multiplication!
+        lambda.lambda_hh[i] = 1.0;
+        
+        avg_lambda_iso += lambda_iso;
+        avg_lambda_aniso += lambda_aniso;
+    }
+    
+    avg_lambda_iso /= N;
+    avg_lambda_aniso /= N;
+    
+    std::cout << "  Lambda stats: inDV=" << count_inDV << ", outDV=" << count_outDV << std::endl;
+    std::cout << "  Avg lambda_iso=" << avg_lambda_iso << ", avg lambda_aniso=" << avg_lambda_aniso << std::endl;
+}
+
+void updateEdgeRestLengths(
+    CoordInfoVecs& coordInfoVecs,
+    GeneralParams& generalParams,
+    LambdaField& lambda,
+    LinearSpringInfoVecs& linearSpringInfoVecs,
+    int layerflag)
+{
+    const int num_edges = coordInfoVecs.num_edges;
+    
+    std::cout << "Updating rest lengths for " << num_edges << " edges (layerflag=" << layerflag << ")..." << std::endl;
+    
+    int edges_modified = 0;
+    double max_strain = 0.0;
+    double avg_strain = 0.0;
+    
+    for (int e = 0; e < num_edges; e++) {
+        // Get edge endpoint indices
+        int v1 = coordInfoVecs.edges2Nodes_1[e];
+        int v2 = coordInfoVecs.edges2Nodes_2[e];
+        
+        // Skip edges not in target layer (if filtering is enabled)
+        if (layerflag >= 0) {
+            // Check if edge is in the specified layer using edges_in_upperhem
+            if (generalParams.edges_in_upperhem.size() > static_cast<size_t>(e)) {
+                int edge_layer = hostSetInfoVecs.edges_in_upperhem[e];
+                if (edge_layer != layerflag) {
+                    // Keep edge at current length
+                    linearSpringInfoVecs.edge_final_length[e] = linearSpringInfoVecs.edge_initial_length[e];
+                    continue;
+                }
+            }
+        }
+        
+        // ========================================
+        // 1. Get spring vector
+        // ========================================
+        double dx = coordInfoVecs.nodeLocX[v2] - coordInfoVecs.nodeLocX[v1];
+        double dy = coordInfoVecs.nodeLocY[v2] - coordInfoVecs.nodeLocY[v1];
+        double dz = coordInfoVecs.nodeLocZ[v2] - coordInfoVecs.nodeLocZ[v1];
+        
+        // ========================================
+        // 2. Average lambda values at endpoints
+        // ========================================
+        double avg_RR = 0.5 * (lambda.lambda_RR[v1] + lambda.lambda_RR[v2]);
+        double avg_phiphi = 0.5 * (lambda.lambda_phiphi[v1] + lambda.lambda_phiphi[v2]);
+        double avg_hh = 0.5 * (lambda.lambda_hh[v1] + lambda.lambda_hh[v2]);
+        
+        // ========================================
+        // 3. Average and renormalize basis vectors
+        // ========================================
+        // e_R
+        double avg_eR_x = 0.5 * (lambda.e_R_x[v1] + lambda.e_R_x[v2]);
+        double avg_eR_y = 0.5 * (lambda.e_R_y[v1] + lambda.e_R_y[v2]);
+        double avg_eR_z = 0.5 * (lambda.e_R_z[v1] + lambda.e_R_z[v2]);
+        normalize3(avg_eR_x, avg_eR_y, avg_eR_z);
+        
+        // e_phi
+        double avg_ephi_x = 0.5 * (lambda.e_phi_x[v1] + lambda.e_phi_x[v2]);
+        double avg_ephi_y = 0.5 * (lambda.e_phi_y[v1] + lambda.e_phi_y[v2]);
+        double avg_ephi_z = 0.5 * (lambda.e_phi_z[v1] + lambda.e_phi_z[v2]);
+        normalize3(avg_ephi_x, avg_ephi_y, avg_ephi_z);
+        
+        // e_h
+        double avg_eh_x = 0.5 * (lambda.e_h_x[v1] + lambda.e_h_x[v2]);
+        double avg_eh_y = 0.5 * (lambda.e_h_y[v1] + lambda.e_h_y[v2]);
+        double avg_eh_z = 0.5 * (lambda.e_h_z[v1] + lambda.e_h_z[v2]);
+        normalize3(avg_eh_x, avg_eh_y, avg_eh_z);
+        
+        // ========================================
+        // 4. Project spring vector onto each basis direction
+        // ========================================
+        double v_dot_eR = dx*avg_eR_x + dy*avg_eR_y + dz*avg_eR_z;
+        double v_dot_ephi = dx*avg_ephi_x + dy*avg_ephi_y + dz*avg_ephi_z;
+        double v_dot_eh = dx*avg_eh_x + dy*avg_eh_y + dz*avg_eh_z;
+        
+        // ========================================
+        // 5. Transform spring vector: v' = ? · v
+        // ? = ?_RR * (e_R ? e_R) + ?_ff * (e_f ? e_f) + ?_hh * (e_h ? e_h)
+        // v' = ?_RR * (v·e_R) * e_R + ?_ff * (v·e_f) * e_f + ?_hh * (v·e_h) * e_h
+        // ========================================
+        double vx_p = avg_RR * v_dot_eR * avg_eR_x + 
+                      avg_phiphi * v_dot_ephi * avg_ephi_x + 
+                      avg_hh * v_dot_eh * avg_eh_x;
+        double vy_p = avg_RR * v_dot_eR * avg_eR_y + 
+                      avg_phiphi * v_dot_ephi * avg_ephi_y + 
+                      avg_hh * v_dot_eh * avg_eh_y;
+        double vz_p = avg_RR * v_dot_eR * avg_eR_z + 
+                      avg_phiphi * v_dot_ephi * avg_ephi_z + 
+                      avg_hh * v_dot_eh * avg_eh_z;
+        
+        // ========================================
+        // 6. New rest length = |v'|
+        // ========================================
+        double new_length = std::sqrt(vx_p*vx_p + vy_p*vy_p + vz_p*vz_p);
+        linearSpringInfoVecs.edge_final_length[e] = new_length;
+        
+        // Track statistics
+        double initial_length = linearSpringInfoVecs.edge_initial_length[e];
+        if (initial_length > 1e-10) {
+            double strain = (new_length - initial_length) / initial_length;
+            avg_strain += std::abs(strain);
+            max_strain = std::max(max_strain, std::abs(strain));
+            edges_modified++;
+        }
+    }
+    
+    if (edges_modified > 0) {
+        avg_strain /= edges_modified;
+    }
+    
+    std::cout << "  Edges modified: " << edges_modified 
+              << ", avg strain: " << avg_strain * 100 << "%" 
+              << ", max strain: " << max_strain * 100 << "%" << std::endl;
 }
 
 } // namespace StrainTensorGPU

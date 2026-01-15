@@ -234,6 +234,23 @@ struct CoordInfoVecs {
   	thrust::device_vector<int> triangles2Triangles_1;
   	thrust::device_vector<int> triangles2Triangles_2;
   	thrust::device_vector<int> triangles2Triangles_3;
+    
+    thrust::device_vector<double> pathlength_scaled;
+    
+    // Radial basis vector (in-surface direction pointing away from center)
+    thrust::device_vector<double> e_R_x;
+    thrust::device_vector<double> e_R_y;
+    thrust::device_vector<double> e_R_z;
+    
+    // Circumferential basis vector (in-surface, perpendicular to e_R)
+    thrust::device_vector<double> e_phi_x;
+    thrust::device_vector<double> e_phi_y;
+    thrust::device_vector<double> e_phi_z;
+    
+    // Height/normal basis vector (surface normal, points radially outward)
+    thrust::device_vector<double> e_h_x;
+    thrust::device_vector<double> e_h_y;
+    thrust::device_vector<double> e_h_z;
 
 };
 

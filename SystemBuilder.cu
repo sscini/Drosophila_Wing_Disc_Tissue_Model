@@ -103,6 +103,93 @@ void SystemBuilder::addCapsidNode(double x, double y, double z) {
 	hostSetInfoVecs.capsidNodeLocZ.push_back(z);
 }
 
+void computeBasisVectors(CoordInfoVecs& coords, HostSetInfoVecs& hostInfo,
+                         double theta_DV = 0.0873, double R = 1.0) {
+    int N = coords.nodeLocX.size();
+    
+    hostInfo.pathlength_scaled.resize(N);
+    hostInfo.e_R_x.resize(N); hostInfo.e_R_y.resize(N); hostInfo.e_R_z.resize(N);
+    hostInfo.e_phi_x.resize(N); hostInfo.e_phi_y.resize(N); hostInfo.e_phi_z.resize(N);
+    hostInfo.e_h_x.resize(N); hostInfo.e_h_y.resize(N); hostInfo.e_h_z.resize(N);
+    
+    for (int i = 0; i < N; i++) {
+        double x = coords.nodeLocX[i];
+        double y = coords.nodeLocY[i];
+        double z = coords.nodeLocZ[i];
+        double r = sqrt(x*x + y*y + z*z);
+        
+        // Surface normal (e_h) - for spherical cap, points radially outward
+        hostInfo.e_h_x[i] = x / r;
+        hostInfo.e_h_y[i] = y / r;
+        hostInfo.e_h_z[i] = z / r;
+        
+        // DV boundary check
+        bool inDV = (fabs(x) <= R * sin(theta_DV / 2.0));
+        hostInfo.nodes_in_DV[i] = inDV ? 1 : 0;
+        
+        // Compute center point for pathlength
+        double cx, cy, cz;
+        if (inDV) {
+            // Center on DV midline
+            cx = x;
+            cy = 0;
+            cz = sqrt(R*R - x*x);
+        } else {
+            // Center at DV boundary edge
+            double sign_x = (x >= 0) ? 1.0 : -1.0;
+            double el = sign_x * theta_DV / 2.0;
+            cx = R * sin(el);
+            cy = 0;
+            cz = R * cos(el);
+        }
+        
+        // Pathlength: arc distance from center
+        double dot = (x*cx + y*cy + z*cz) / (R*R);
+        dot = fmax(-1.0, fmin(1.0, dot));  // Clamp for numerical safety
+        double pathlength = R * acos(dot);
+        hostInfo.pathlength_scaled[i] = pathlength;  // Will normalize later
+        
+        // e_R: in-surface direction pointing away from center
+        double oax = x - cx, oay = y - cy, oaz = z - cz;
+        double oa_len = sqrt(oax*oax + oay*oay + oaz*oaz);
+        if (oa_len < 1e-10) oa_len = 1e-10;
+        oax /= oa_len; oay /= oa_len; oaz /= oa_len;
+        
+        // Project onto surface: e_R = e_OA - (e_h · e_OA) * e_h
+        double eh_dot_eoa = hostInfo.e_h_x[i]*oax + hostInfo.e_h_y[i]*oay + hostInfo.e_h_z[i]*oaz;
+        double er_x = oax - eh_dot_eoa * hostInfo.e_h_x[i];
+        double er_y = oay - eh_dot_eoa * hostInfo.e_h_y[i];
+        double er_z = oaz - eh_dot_eoa * hostInfo.e_h_z[i];
+        double er_len = sqrt(er_x*er_x + er_y*er_y + er_z*er_z);
+        if (er_len < 1e-10) er_len = 1e-10;
+        hostInfo.e_R_x[i] = er_x / er_len;
+        hostInfo.e_R_y[i] = er_y / er_len;
+        hostInfo.e_R_z[i] = er_z / er_len;
+        
+        // e_phi = e_h × e_R
+        hostInfo.e_phi_x[i] = hostInfo.e_h_y[i] * hostInfo.e_R_z[i] - hostInfo.e_h_z[i] * hostInfo.e_R_y[i];
+        hostInfo.e_phi_y[i] = hostInfo.e_h_z[i] * hostInfo.e_R_x[i] - hostInfo.e_h_x[i] * hostInfo.e_R_z[i];
+        hostInfo.e_phi_z[i] = hostInfo.e_h_x[i] * hostInfo.e_R_y[i] - hostInfo.e_h_y[i] * hostInfo.e_R_x[i];
+    }
+    
+    // Normalize pathlength_scaled separately for DV and outDV
+    double max_pl_inDV = 0, max_pl_outDV = 0;
+    for (int i = 0; i < N; i++) {
+        if (hostInfo.nodes_in_DV[i] == 1) {
+            max_pl_inDV = fmax(max_pl_inDV, hostInfo.pathlength_scaled[i]);
+        } else {
+            max_pl_outDV = fmax(max_pl_outDV, hostInfo.pathlength_scaled[i]);
+        }
+    }
+    for (int i = 0; i < N; i++) {
+        if (hostInfo.nodes_in_DV[i] == 1 && max_pl_inDV > 0) {
+            hostInfo.pathlength_scaled[i] /= max_pl_inDV;
+        } else if (max_pl_outDV > 0) {
+            hostInfo.pathlength_scaled[i] /= max_pl_outDV;
+        }
+    }
+}
+
 // Function to create the system and return a shared pointer to it.
 std::shared_ptr<System> SystemBuilder::createSystem() {
 	// Create a shared pointer to the System object.

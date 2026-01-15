@@ -2,147 +2,80 @@
 
 RM := rm -rf
 
-# pull in your per-subdir .cpp / .cu ? .o rules (if you have them)
+# Pull in subdir.mk which defines OBJS and rules (we will fix subdir.mk too)
 -include subdir.mk
 
-# All of your .o’s come from subdir.mk + these extras:
-OBJS += XMLParser.o \
-        gradientRelax.o        # <--- add your new object
+# Add extra .o not listed in subdir.mk (if these are real sources in this dir)
+OBJS += XMLParser.o gradientRelax.o
 
-# if you have dependency files, keep pulling them in
-ifneq ($(MAKECMDGOALS),clean)
-  ifneq ($(strip $(C++_DEPS)),)
-    -include $(C++_DEPS)
-  endif
-  ifneq ($(strip $(C_DEPS)),)
-    -include $(C_DEPS)
-  endif
-  ifneq ($(strip $(CC_DEPS)),)
-    -include $(CC_DEPS)
-  endif
-  ifneq ($(strip $(CPP_DEPS)),)
-    -include $(CPP_DEPS)
-  endif
-  ifneq ($(strip $(CXX_DEPS)),)
-    -include $(CXX_DEPS)
-  endif
-  ifneq ($(strip $(C_UPPER_DEPS)),)
-    -include $(C_UPPER_DEPS)
-  endif
-endif
+# ----------------------------
+# Toolchain
+# ----------------------------
+CXX  ?= g++
+NVCC ?= nvcc
 
--include ../makefile.defs
+# ----------------------------
+# Includes / libs
+# ----------------------------
+current_dir := $(shell pwd)
 
-#------------------------------------------------------------------------------
-# Compiler flags
-#------------------------------------------------------------------------------
-NVCCFLAGS = -std=c++14
+CUDA_INC := -I/opt/linux/rocky/8.x/x86_64/pkgs/cuda/12.1/include/
+PUGI_LIB := -L$(current_dir)/pugixml/lib64 -lpugixml
 
-#------------------------------------------------------------------------------
-# Implicit rule: compile any .cu ? .o with NVCC (device code)
-#------------------------------------------------------------------------------
-%.o: %.cu gradientRelax.h
-	@echo "Compiling CUDA $< ? $@"
-	$(NVCC) $(NVCCFLAGS) -dc -o $@ $<
+# If you have other libs, append here:
+LIBS  += $(PUGI_LIB)
+ILIBS += $(CUDA_INC)
 
-#------------------------------------------------------------------------------
-# All Target
-#------------------------------------------------------------------------------
+# ----------------------------
+# Flags
+# ----------------------------
+CXXFLAGS  += -O3 -std=c++14 -Wall -Wextra -pthread
+NVCCFLAGS += -O3 -std=c++14
+
+# IMPORTANT:
+# enable double atomicAdd by compiling for sm_60+ (Pascal+).
+# Use a fatbinary so it runs on multiple nodes (safe on clusters).
+NVCCFLAGS += \
+  -gencode arch=compute_60,code=sm_60 \
+  -gencode arch=compute_70,code=sm_70 \
+  -gencode arch=compute_80,code=sm_80 \
+  -gencode arch=compute_86,code=sm_86 \
+  -gencode arch=compute_86,code=compute_86
+
+# (Optional but recommended) show warnings in device code
+NVCCFLAGS += -Xcompiler="-Wall -Wextra"
+
+# ----------------------------
+# Default target
+# ----------------------------
 all: tissue-model
 
-#------------------------------------------------------------------------------
+# ----------------------------
+# C++ compile rule
+# ----------------------------
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) $(ILIBS) -c $< -o $@
+
+# ----------------------------
+# CUDA compile rule
+# ----------------------------
+%.o: %.cu
+	$(NVCC) $(NVCCFLAGS) $(ILIBS) -dc $< -o $@
+
+# ----------------------------
 # Link
-#------------------------------------------------------------------------------
+# ----------------------------
 tissue-model: $(OBJS)
 	@echo 'Building target: $@'
-	@echo 'Invoking: NVCC C++ Linker'
-	nvcc $(ILIBS1) $(LIBS) $(OBJS) $(NVCCFLAGS) -o $@
+	$(NVCC) $(NVCCFLAGS) $(OBJS) $(LIBS) -o $@
 	@echo 'Finished building target: $@'
-	@echo
 
-#------------------------------------------------------------------------------
+# ----------------------------
 # Clean
-#------------------------------------------------------------------------------
+# ----------------------------
 clean:
-	-$(RM) $(OBJS) tissue-model
+	-$(RM) $(OBJS) tissue-model *.d
 	-@echo
 
-#------------------------------------------------------------------------------
-# Other targets you had
-#------------------------------------------------------------------------------
-post-build:
-	-@echo
-
-.PHONY: all clean post-build
-.SECONDARY: post-build
-
+.PHONY: all clean
 -include ../makefile.targets
-
-
-
-#-include ../makefile.init
-#
-#RM := rm -rf
-#
-## All of the sources participating in the build are defined here
-#-include subdir.mk
-#
-## Append the XMLParser object so that XMLParser.cpp gets compiled.
-#OBJS += XMLParser.o
-#
-#ifneq ($(MAKECMDGOALS),clean)
-#ifneq ($(strip $(C++_DEPS)),)
-#-include $(C++_DEPS)
-#endif
-#ifneq ($(strip $(C_DEPS)),)
-#-include $(C_DEPS)
-#endif
-#ifneq ($(strip $(CC_DEPS)),)
-#-include $(CC_DEPS)
-#endif
-#ifneq ($(strip $(CPP_DEPS)),)
-#-include $(CPP_DEPS)
-#endif
-#ifneq ($(strip $(CXX_DEPS)),)
-#-include $(CXX_DEPS)
-#endif
-#ifneq ($(strip $(C_UPPER_DEPS)),)
-#-include $(C_UPPER_DEPS)
-#endif
-#endif
-#
-#-include ../makefile.defs
-#
-## Add inputs and outputs from these tool invocations to the build variables 
-#
-## All Target
-#all: virus-model
-#
-##Flags 
-##CXXFLAGS=-O3 -std=c++0x -pg -g -c -Wall
-#NVCCFLAGS= -std=c++11
-##  -g -G -O2
-#
-## Tool invocations 
-#virus-model: $(OBJS)
-#	@echo 'Building target: $@'
-#	@echo 'Invoking: NVCC C++ Linker'
-#	nvcc $(ILIBS1) $(LIBS) $(OBJS) $(NVCCFLAGS) -o "virus-model"  
-#	@echo 'Finished building target: $@'
-#	@echo ' ' 
-#	$(MAKE) --no-print-directory post-build 
-#
-## Other Targets
-#clean:
-#	-$(RM) $(OBJS)$(C++_DEPS)$(C_DEPS)$(CC_DEPS)$(CPP_DEPS)$(EXECUTABLES)$(CXX_DEPS)$(C_UPPER_DEPS) virus-model
-#	-@echo ' '
-#
-#post-build:
-#	#-mkdir --parents ../../dpd-0.0.6/Debug; cd ../../dpd-0.0.6/Debug; cp ../../dpd-model/Debug/dpd-model dpd-model
-#	-@echo ' '
-#
-#.PHONY: all clean dependents
-#.SECONDARY: post-build
-#
-#-include ../makefile.targets
-## DO NOT DELETE

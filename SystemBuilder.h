@@ -92,7 +92,9 @@ public:
     void addLayerFlag_node(int layerflag);
     void addLayerFlag_edge(int layerflag);
    // void addLayerFlag_elems(int layerflag);
-
+    
+    void computeBasisVectors(CoordInfoVecs& coords, HostSetInfoVecs& hostInfo,
+                         double theta_DV = 0.0873, double R = 1.0);
 
     // Function to create the system and return a shared pointer to it.
     std::shared_ptr<System> createSystem();

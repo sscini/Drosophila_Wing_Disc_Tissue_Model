@@ -718,31 +718,53 @@ void System::Solve_Forces()
    // PrintForce();
 };
 
-// Function to solve the entire system.
 void System::solveSystem()
 {
+    // ============================================
+    //              INITIALIZATION
+    // ============================================
+    
+    BuildPrismsFromLayerFlags(generalParams, coordInfoVecs, prismInfoVecs);
 
-    // Debug code
-    
-    // In solveSystem(), before BuildPrismsFromLayerFlags:
-    int verticalEdgeCount = 0;
-    for (int i = 0; i < coordInfoVecs.num_edges; ++i) {
-      if (generalParams.edges_in_upperhem[i] == -1) verticalEdgeCount++;
+    generalParams.dt = 0.000001;
+
+    // Compute initial center
+    double cx = 0.0, cy = 0.0, cz = 0.0;
+    int count = 0;
+    for (int i = 0; i < generalParams.maxNodeCount; i++) {
+        cx += coordInfoVecs.nodeLocX[i];
+        cy += coordInfoVecs.nodeLocY[i];
+        cz += coordInfoVecs.nodeLocZ[i];
+        count++;
     }
-    std::cout << "Total edges with layer=-1 (vertical): " << verticalEdgeCount << std::endl;
+    if (count > 0) {
+        generalParams.centerX = cx / count;
+        generalParams.centerY = cy / count;
+        generalParams.centerZ = cz / count;
+    }
+
+    // Compute initial volume
+    ComputeVolume(generalParams, coordInfoVecs, linearSpringInfoVecs, 
+                  ljInfoVecs, prismInfoVecs);
+    generalParams.eq_total_volume = generalParams.current_total_volume;
+    std::cout << "Initial volume = " << generalParams.eq_total_volume << std::endl;
+
+    // ============================================
+    //     INITIAL RELAXATION
+    // ============================================
     
-    
-    DebugPrintLayerFlags(generalParams, coordInfoVecs);
-    // ========================================
-    // INITIAL RELAXATION (unchanged from your code)
-    // ========================================
     std::cout << "\n========== INITIAL RELAXATION ==========" << std::endl;
-    generalParams.tol = 1e-6;
+    
+    thrust::copy(linearSpringInfoVecs.edge_initial_length.begin(),
+                 linearSpringInfoVecs.edge_initial_length.end(),
+                 linearSpringInfoVecs.edge_rest_length.begin());
+
+    generalParams.tol = 1e-8;
     int initial_relax_iters = relaxUntilConverged(*this);
+    
     std::cout << "Initial relaxation converged in " << initial_relax_iters 
               << " iterations, E = " << linearSpringInfoVecs.linear_spring_energy << std::endl;
 
-    // Print initial VTK file
     storage->print_VTK_File();
 
     // ============================================
@@ -754,12 +776,10 @@ void System::solveSystem()
     
     std::cout << "\n========== APPLYING STRAIN IN " << num_stages << " STAGE(S) ==========" << std::endl;
 
-    // ========================================
-    // COMPUTE BASIS VECTORS (do this ONCE at the start)
-    // ========================================
+    // Compute basis vectors ONCE at the start
     LambdaField lambda;
-    double theta_DV = generalParams.theta_DV;  // Should be ~0.1931 from paper
-    double R = 1.0;  // Sphere radius (adjust if your mesh has different radius)
+    double theta_DV = 0.1931;
+    double R = 1.0;  // Will be auto-detected
     
     StrainTensorGPU::computeBasisVectorsAndPathlength(
         generalParams, coordInfoVecs, lambda, theta_DV, R);
@@ -768,95 +788,89 @@ void System::solveSystem()
     {
         std::cout << "\n----- Stage " << stage + 1 << " of " << num_stages << " -----" << std::endl;
 
-        // ------------------------------------------
-        // Step 1: Load lambda values for this stage (if using multi-stage)
-        // ------------------------------------------
-        if (stage < static_cast<int>(generalParams.lambda_iso_center_outDV_v.size())) {
-            generalParams.lambda_iso_center_outDV = generalParams.lambda_iso_center_outDV_v[stage];
-            generalParams.lambda_iso_edge_outDV   = generalParams.lambda_iso_edge_outDV_v[stage];
-            generalParams.lambda_aniso_center_outDV = generalParams.lambda_aniso_center_outDV_v[stage];
-            generalParams.lambda_aniso_edge_outDV   = generalParams.lambda_aniso_edge_outDV_v[stage];
-            generalParams.lambda_iso_center_inDV = generalParams.lambda_iso_center_inDV_v[stage];
-            generalParams.lambda_iso_edge_inDV   = generalParams.lambda_iso_edge_inDV_v[stage];
-            generalParams.lambda_aniso_center_inDV = generalParams.lambda_aniso_center_inDV_v[stage];
-            generalParams.lambda_aniso_edge_inDV   = generalParams.lambda_aniso_edge_inDV_v[stage];
-        }
-        
-        // Print current lambda parameters
-        std::cout << "Lambda params (outDV): iso_center=" << generalParams.lambda_iso_center_outDV
-                  << ", iso_edge=" << generalParams.lambda_iso_edge_outDV
-                  << ", aniso_center=" << generalParams.lambda_aniso_center_outDV
-                  << ", aniso_edge=" << generalParams.lambda_aniso_edge_outDV << std::endl;
-        std::cout << "Lambda params (inDV):  iso_center=" << generalParams.lambda_iso_center_inDV
-                  << ", iso_edge=" << generalParams.lambda_iso_edge_inDV
-                  << ", aniso_center=" << generalParams.lambda_aniso_center_inDV
-                  << ", aniso_edge=" << generalParams.lambda_aniso_edge_inDV << std::endl;
+        // Get lambda coefficients for this stage
+        StrainTensorGPU::getLambdaCoeffsForStage(
+            stage,
+            generalParams.lambda_iso_center_outDV,
+            generalParams.lambda_iso_edge_outDV,
+            generalParams.lambda_aniso_center_outDV,
+            generalParams.lambda_aniso_edge_outDV,
+            generalParams.lambda_iso_center_inDV,
+            generalParams.lambda_iso_edge_inDV,
+            generalParams.lambda_aniso_center_inDV,
+            generalParams.lambda_aniso_edge_inDV);
 
-        // ------------------------------------------
-        // Step 2: Build vertex lambda values (with full strain)
-        // ------------------------------------------
-        double frac = 1.0;  // Full strain for target
-        StrainTensorGPU::buildVertexLambda(
-            generalParams, coordInfoVecs, lambda, frac);
+        // Build vertex lambda values
+        double frac = 1.0;
+        StrainTensorGPU::buildVertexLambda(generalParams, lambda, frac);
 
-        // ------------------------------------------
-        // Step 3: Compute target rest lengths
-        // ------------------------------------------
-        int layerflag = -1;  // Apply to all layers (-1), or specify layer
+        // Compute target rest lengths
+        // layerflag = -1: skip vertical edges (those with edge_layer=-1)
+        // layerflag >= 0: apply only to that specific layer
+        int layerflag = -1;  // Apply to all horizontal layers, skip vertical
         StrainTensorGPU::updateEdgeRestLengths(
             coordInfoVecs, generalParams, lambda, 
             linearSpringInfoVecs, layerflag);
 
-        // ------------------------------------------
-        // Step 4: Quasi-static strain application
-        // ------------------------------------------
+        // Quasi-static strain application
         int num_substeps = 100;
         int relax_iters_per_substep = 100;
         
         std::cout << "Applying strain quasi-statically in " << num_substeps << " substeps..." << std::endl;
         
-        // Store starting rest lengths
-        thrust::host_vector<double> h_start_length = linearSpringInfoVecs.edge_rest_length;
-        thrust::host_vector<double> h_final_length = linearSpringInfoVecs.edge_final_length;
+        // Store starting and final rest lengths
+        thrust::host_vector<double> h_start_length(coordInfoVecs.num_edges);
+        thrust::host_vector<double> h_final_length(coordInfoVecs.num_edges);
+        thrust::copy(linearSpringInfoVecs.edge_rest_length.begin(),
+                     linearSpringInfoVecs.edge_rest_length.end(),
+                     h_start_length.begin());
+        thrust::copy(linearSpringInfoVecs.edge_final_length.begin(),
+                     linearSpringInfoVecs.edge_final_length.end(),
+                     h_final_length.begin());
         
         for (int sub = 1; sub <= num_substeps; sub++)
         {
-            // Linear interpolation parameter
             double t = static_cast<double>(sub) / static_cast<double>(num_substeps);
             
-            // Interpolate rest lengths: L_rest = (1-t)*L_start + t*L_final
+            // Interpolate rest lengths
             for (int e = 0; e < coordInfoVecs.num_edges; e++) {
                 double L_interp = (1.0 - t) * h_start_length[e] + t * h_final_length[e];
                 linearSpringInfoVecs.edge_rest_length[e] = L_interp;
             }
             
-            // Relax to new configuration
+            // Relax
             for (int relax_iter = 0; relax_iter < relax_iters_per_substep; relax_iter++) {
                 Solve_Forces();
                 AdvancePositions(coordInfoVecs, generalParams, domainParams);
             }
             
-            // Progress output
+            // Check volume periodically
             if (sub % 10 == 0 || sub == num_substeps) {
+                ComputeVolume(generalParams, coordInfoVecs, linearSpringInfoVecs, 
+                              ljInfoVecs, prismInfoVecs);
                 std::cout << "  Substep " << sub << "/" << num_substeps 
-                          << ", E = " << linearSpringInfoVecs.linear_spring_energy << std::endl;
+                          << ", E = " << linearSpringInfoVecs.linear_spring_energy
+                          << ", V = " << generalParams.current_total_volume << std::endl;
+                          
+                // Check for numerical problems
+                if (std::isnan(linearSpringInfoVecs.linear_spring_energy) ||
+                    generalParams.current_total_volume < 0) {
+                    std::cout << "  WARNING: Numerical instability detected!" << std::endl;
+                }
             }
         }
         
-        // ------------------------------------------
-        // Step 5: Final relaxation to convergence
-        // ------------------------------------------
+        // Final relaxation
         std::cout << "Final relaxation for stage " << stage + 1 << "..." << std::endl;
         generalParams.tol = 1e-8;
         int final_iters = relaxUntilConverged(*this);
         std::cout << "Final relaxation: " << final_iters << " iterations, "
                   << "E = " << linearSpringInfoVecs.linear_spring_energy << std::endl;
         
-        // Update edge_rest_length to final values for next stage
+        // Update edge_rest_length for next stage
         thrust::copy(h_final_length.begin(), h_final_length.end(), 
                      linearSpringInfoVecs.edge_rest_length.begin());
         
-        // Save VTK for this stage
         storage->print_VTK_File();
         
     } // end stage loop

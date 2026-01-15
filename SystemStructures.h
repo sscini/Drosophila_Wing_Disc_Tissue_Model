@@ -163,22 +163,22 @@ struct HostSetInfoVecs {
     thrust::host_vector<double> edge_initial_length;
     thrust::host_vector<double> edge_rest_length;
     
-//    thrust::host_vector<double> pathlength_scaled;
-//    
-//    // Radial basis vector (in-surface direction pointing away from center)
-//    thrust::host_vector<double> e_R_x;
-//    thrust::host_vector<double> e_R_y;
-//    thrust::host_vector<double> e_R_z;
-//    
-//    // Circumferential basis vector (in-surface, perpendicular to e_R)
-//    thrust::host_vector<double> e_phi_x;
-//    thrust::host_vector<double> e_phi_y;
-//    thrust::host_vector<double> e_phi_z;
-//    
-//    // Height/normal basis vector (surface normal, points radially outward)
-//    thrust::host_vector<double> e_h_x;
-//    thrust::host_vector<double> e_h_y;
-//    thrust::host_vector<double> e_h_z;
+    thrust::host_vector<double> pathlength_scaled;
+    
+    // Radial basis vector (in-surface direction pointing away from center)
+    thrust::host_vector<double> e_R_x;
+    thrust::host_vector<double> e_R_y;
+    thrust::host_vector<double> e_R_z;
+    
+    // Circumferential basis vector (in-surface, perpendicular to e_R)
+    thrust::host_vector<double> e_phi_x;
+    thrust::host_vector<double> e_phi_y;
+    thrust::host_vector<double> e_phi_z;
+    
+    // Height/normal basis vector (surface normal, points radially outward)
+    thrust::host_vector<double> e_h_x;
+    thrust::host_vector<double> e_h_y;
+    thrust::host_vector<double> e_h_z;
 };
 
 // Functor to add forces to nodes in the system.

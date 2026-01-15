@@ -1,9 +1,9 @@
 #include "gradientRelax.h"
-#include <vector>            // for std::vector
-#include <thrust/copy.h>     // for thrust::copy
-#include <limits>            // for std::numeric_limits
-#include <cmath>             // for std::sqrt
-#include <iostream>          // for std::cout
+#include <vector>
+#include <thrust/copy.h>
+#include <limits>
+#include <cmath>
+#include <iostream>
 
 int relaxUntilConverged(System& system)
 {
@@ -50,11 +50,11 @@ int relaxUntilConverged(System& system)
             z_old.begin());
 
         // 2) Build forces, then move nodes
-        system.Solve_Forces();  // member in System
+        system.Solve_Forces();
         AdvancePositions(
             coordInfoVecs,
             generalParams,
-            domainParams);       // free function
+            domainParams);
 
         // 3) Snapshot new positions 
         thrust::copy(
@@ -81,7 +81,6 @@ int relaxUntilConverged(System& system)
         }
         
         // FIX: Divide by actual node count N, not a magic number
-        // This is the average displacement per node per iteration
         generalParams.dx = dx_sum / static_cast<double>(N);
 
         ++iter;

@@ -386,78 +386,174 @@ void updateEdgeRestLengths(
     std::cout << "  Edges skipped (wrong layer): " << edges_skipped_layer << std::endl;
     std::cout << "  Avg strain: " << avg_strain * 100 << "%, max strain: " << max_strain * 100 << "%" << std::endl;
 }
+// ============================================================================
+// PROGRESSIVE STRAIN TESTING for getLambdaCoeffsForStage()
+// 
+// Use this to systematically find the maximum stable strain level
+// ============================================================================
 
-// ============================================================================
-// getLambdaCoeffsForStage
-// ============================================================================
-void getLambdaCoeffsForStage(
+void StrainTensorGPU::getLambdaCoeffsForStage(
     int stage,
     double& iso_center_outDV, double& iso_edge_outDV,
     double& aniso_center_outDV, double& aniso_edge_outDV,
     double& iso_center_inDV, double& iso_edge_inDV,
     double& aniso_center_inDV, double& aniso_edge_inDV)
 {
-    // Stage 0: wL3 to 0hAPF
-    const double s0_outDV_iso_slope = -0.12406004, s0_outDV_iso_intercept = 1.20789496;
-    const double s0_outDV_aniso_slope = 0.06172103, s0_outDV_aniso_intercept = 1.01053997;
-    const double s0_inDV_iso_slope = -0.09848994, s0_inDV_iso_intercept = 1.18401136;
-    const double s0_inDV_aniso_slope = -0.12904887, s0_inDV_aniso_intercept = 1.03128453;
+    // =====================================================================
+    // STRAIN TESTING CONFIGURATION
+    // Change TEST_LEVEL to test different strain amounts
+    // =====================================================================
     
-    // Stage 1: wL3 to 2hAPF  
-    const double s1_outDV_iso_slope = -0.29431527, s1_outDV_iso_intercept = 1.4425603;
-    const double s1_outDV_aniso_slope = 0.21823128, s1_outDV_aniso_intercept = 0.98874841;
-    const double s1_inDV_iso_slope = -0.11692544, s1_inDV_iso_intercept = 1.2100754;
-    const double s1_inDV_aniso_slope = -0.21271504, s1_inDV_aniso_intercept = 1.24178074;
+    // Test levels:
+    // 0 = No strain (all 1.0) - VERIFIED WORKING
+    // 1 = 2% uniform isotropic
+    // 2 = 5% uniform isotropic  
+    // 3 = 10% uniform isotropic
+    // 4 = 15% uniform isotropic
+    // 5 = 20% uniform isotropic (close to paper values)
+    // 6 = Paper values with reduced magnitude (50%)
+    // 7 = Full paper values
     
-    // Stage 2: wL3 to 4hAPF
-    const double s2_outDV_iso_slope = -0.20050286, s2_outDV_iso_intercept = 1.43479468;
-    const double s2_outDV_aniso_slope = 0.29444448, s2_outDV_aniso_intercept = 0.97652462;
-    const double s2_inDV_iso_slope = -0.06151876, s2_inDV_iso_intercept = 1.47472744;
-    const double s2_inDV_aniso_slope = -0.30567972, s2_inDV_aniso_intercept = 1.29370391;
+    const int TEST_LEVEL = 1;  // <-- CHANGE THIS TO TEST DIFFERENT LEVELS
     
-    double slope_outDV_iso, intercept_outDV_iso;
-    double slope_outDV_aniso, intercept_outDV_aniso;
-    double slope_inDV_iso, intercept_inDV_iso;
-    double slope_inDV_aniso, intercept_inDV_aniso;
-    
-    switch(stage) {
+    switch (TEST_LEVEL) {
         case 0:
-            slope_outDV_iso = s0_outDV_iso_slope; intercept_outDV_iso = s0_outDV_iso_intercept;
-            slope_outDV_aniso = s0_outDV_aniso_slope; intercept_outDV_aniso = s0_outDV_aniso_intercept;
-            slope_inDV_iso = s0_inDV_iso_slope; intercept_inDV_iso = s0_inDV_iso_intercept;
-            slope_inDV_aniso = s0_inDV_aniso_slope; intercept_inDV_aniso = s0_inDV_aniso_intercept;
+            // No strain - verified stable
+            iso_center_outDV = 1.0;
+            iso_edge_outDV = 1.0;
+            aniso_center_outDV = 1.0;
+            aniso_edge_outDV = 1.0;
+            iso_center_inDV = 1.0;
+            iso_edge_inDV = 1.0;
+            aniso_center_inDV = 1.0;
+            aniso_edge_inDV = 1.0;
+            std::cout << "TEST_LEVEL 0: No strain (all lambda = 1.0)" << std::endl;
             break;
+            
         case 1:
-            slope_outDV_iso = s1_outDV_iso_slope; intercept_outDV_iso = s1_outDV_iso_intercept;
-            slope_outDV_aniso = s1_outDV_aniso_slope; intercept_outDV_aniso = s1_outDV_aniso_intercept;
-            slope_inDV_iso = s1_inDV_iso_slope; intercept_inDV_iso = s1_inDV_iso_intercept;
-            slope_inDV_aniso = s1_inDV_aniso_slope; intercept_inDV_aniso = s1_inDV_aniso_intercept;
+            // 2% uniform isotropic growth
+            iso_center_outDV = 1.02;
+            iso_edge_outDV = 1.02;
+            aniso_center_outDV = 1.0;
+            aniso_edge_outDV = 1.0;
+            iso_center_inDV = 1.02;
+            iso_edge_inDV = 1.02;
+            aniso_center_inDV = 1.0;
+            aniso_edge_inDV = 1.0;
+            std::cout << "TEST_LEVEL 1: 2% uniform isotropic" << std::endl;
             break;
+            
         case 2:
+            // 5% uniform isotropic growth
+            iso_center_outDV = 1.05;
+            iso_edge_outDV = 1.05;
+            aniso_center_outDV = 1.0;
+            aniso_edge_outDV = 1.0;
+            iso_center_inDV = 1.05;
+            iso_edge_inDV = 1.05;
+            aniso_center_inDV = 1.0;
+            aniso_edge_inDV = 1.0;
+            std::cout << "TEST_LEVEL 2: 5% uniform isotropic" << std::endl;
+            break;
+            
+        case 3:
+            // 10% uniform isotropic growth
+            iso_center_outDV = 1.10;
+            iso_edge_outDV = 1.10;
+            aniso_center_outDV = 1.0;
+            aniso_edge_outDV = 1.0;
+            iso_center_inDV = 1.10;
+            iso_edge_inDV = 1.10;
+            aniso_center_inDV = 1.0;
+            aniso_edge_inDV = 1.0;
+            std::cout << "TEST_LEVEL 3: 10% uniform isotropic" << std::endl;
+            break;
+            
+        case 4:
+            // 15% uniform isotropic growth
+            iso_center_outDV = 1.15;
+            iso_edge_outDV = 1.15;
+            aniso_center_outDV = 1.0;
+            aniso_edge_outDV = 1.0;
+            iso_center_inDV = 1.15;
+            iso_edge_inDV = 1.15;
+            aniso_center_inDV = 1.0;
+            aniso_edge_inDV = 1.0;
+            std::cout << "TEST_LEVEL 4: 15% uniform isotropic" << std::endl;
+            break;
+            
+        case 5:
+            // 20% uniform isotropic growth (similar magnitude to paper)
+            iso_center_outDV = 1.20;
+            iso_edge_outDV = 1.20;
+            aniso_center_outDV = 1.0;
+            aniso_edge_outDV = 1.0;
+            iso_center_inDV = 1.20;
+            iso_edge_inDV = 1.20;
+            aniso_center_inDV = 1.0;
+            aniso_edge_inDV = 1.0;
+            std::cout << "TEST_LEVEL 5: 20% uniform isotropic" << std::endl;
+            break;
+            
+        case 6:
+            // Paper values at 50% magnitude
+            // Original stage 0 values, but (lambda - 1) * 0.5 + 1
+            iso_center_outDV = 1.0 + (1.20789 - 1.0) * 0.5;   // = 1.104
+            iso_edge_outDV = 1.0 + (1.08383 - 1.0) * 0.5;     // = 1.042
+            aniso_center_outDV = 1.0 + (1.01054 - 1.0) * 0.5; // = 1.005
+            aniso_edge_outDV = 1.0 + (1.07226 - 1.0) * 0.5;   // = 1.036
+            iso_center_inDV = 1.0 + (1.18401 - 1.0) * 0.5;    // = 1.092
+            iso_edge_inDV = 1.0 + (1.08552 - 1.0) * 0.5;      // = 1.043
+            aniso_center_inDV = 1.0 + (1.03128 - 1.0) * 0.5;  // = 1.016
+            aniso_edge_inDV = 1.0 + (0.90224 - 1.0) * 0.5;    // = 0.951
+            std::cout << "TEST_LEVEL 6: Paper values at 50% magnitude" << std::endl;
+            break;
+            
+        case 7:
         default:
-            slope_outDV_iso = s2_outDV_iso_slope; intercept_outDV_iso = s2_outDV_iso_intercept;
-            slope_outDV_aniso = s2_outDV_aniso_slope; intercept_outDV_aniso = s2_outDV_aniso_intercept;
-            slope_inDV_iso = s2_inDV_iso_slope; intercept_inDV_iso = s2_inDV_iso_intercept;
-            slope_inDV_aniso = s2_inDV_aniso_slope; intercept_inDV_aniso = s2_inDV_aniso_intercept;
+            // Full paper values (original hardcoded values for stage 0)
+            iso_center_outDV = 1.20789;
+            iso_edge_outDV = 1.08383;
+            aniso_center_outDV = 1.01054;
+            aniso_edge_outDV = 1.07226;
+            iso_center_inDV = 1.18401;
+            iso_edge_inDV = 1.08552;
+            aniso_center_inDV = 1.03128;
+            aniso_edge_inDV = 0.90224;
+            std::cout << "TEST_LEVEL 7: Full paper values (stage 0)" << std::endl;
             break;
     }
     
-    // Convert: center = intercept, edge = slope + intercept
-    iso_center_outDV = intercept_outDV_iso;
-    iso_edge_outDV = slope_outDV_iso + intercept_outDV_iso;
-    aniso_center_outDV = intercept_outDV_aniso;
-    aniso_edge_outDV = slope_outDV_aniso + intercept_outDV_aniso;
-    
-    iso_center_inDV = intercept_inDV_iso;
-    iso_edge_inDV = slope_inDV_iso + intercept_inDV_iso;
-    aniso_center_inDV = intercept_inDV_aniso;
-    aniso_edge_inDV = slope_inDV_aniso + intercept_inDV_aniso;
-    
-    std::cout << "Stage " << stage << " lambda coefficients:" << std::endl;
-    std::cout << "  outDV: iso_center=" << iso_center_outDV << ", iso_edge=" << iso_edge_outDV
-              << ", aniso_center=" << aniso_center_outDV << ", aniso_edge=" << aniso_edge_outDV << std::endl;
-    std::cout << "  inDV:  iso_center=" << iso_center_inDV << ", iso_edge=" << iso_edge_inDV
-              << ", aniso_center=" << aniso_center_inDV << ", aniso_edge=" << aniso_edge_inDV << std::endl;
+    // Print the actual values being used
+    std::cout << "  outDV: iso_center=" << iso_center_outDV 
+              << ", iso_edge=" << iso_edge_outDV
+              << ", aniso_center=" << aniso_center_outDV 
+              << ", aniso_edge=" << aniso_edge_outDV << std::endl;
+    std::cout << "  inDV:  iso_center=" << iso_center_inDV 
+              << ", iso_edge=" << iso_edge_inDV
+              << ", aniso_center=" << aniso_center_inDV 
+              << ", aniso_edge=" << aniso_edge_inDV << std::endl;
+}
+
+
+// ============================================================================
+// EXPECTED RESULTS FOR EACH TEST LEVEL
+// ============================================================================
+//
+// Level 0 (no strain):     E ˜ 0.007, V = 273962 ? VERIFIED
+// Level 1 (2% iso):        E should increase slightly, V stable
+// Level 2 (5% iso):        E increases more, V stable
+// Level 3 (10% iso):       E increases significantly, V stable
+// Level 4 (15% iso):       Getting close to instability threshold
+// Level 5 (20% iso):       May need more substeps/smaller dt
+// Level 6 (50% paper):     Tests spatial variation
+// Level 7 (full paper):    Full strain - requires all stability fixes
+//
+// If a level fails (NaN, negative volume), go back one level and:
+// 1. Increase num_substeps (try 100, 200, 500)
+// 2. Decrease dt (try 1e-8, 1e-9)
+// 3. Check if anisotropic strain causes issues (test iso-only first)
+// ============================================================================
 }
 
 } // namespace StrainTensorGPU

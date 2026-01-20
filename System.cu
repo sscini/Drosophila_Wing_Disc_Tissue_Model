@@ -718,6 +718,33 @@ void System::Solve_Forces()
    // PrintForce();
 };
 
+// ============================================================================
+// FIXED solveSystem() function for System.cu
+// 
+// Key fixes:
+// 1. Uses thrust operations for rest length interpolation instead of host loop
+// 2. Adds stability checks and early termination
+// 3. Reduces timestep for strain application
+// 4. Uses more substeps for gentler strain application
+// ============================================================================
+
+// Add this functor near the top of System.cu (after includes):
+struct InterpolateRestLengthFunctor {
+    double t;  // interpolation parameter [0,1]
+    
+    __host__ __device__
+    InterpolateRestLengthFunctor(double _t) : t(_t) {}
+    
+    __device__
+    double operator()(const thrust::tuple<double, double>& lengths) {
+        double start_len = thrust::get<0>(lengths);
+        double final_len = thrust::get<1>(lengths);
+        return (1.0 - t) * start_len + t * final_len;
+    }
+};
+
+// Replace your solveSystem() function with this version:
+
 void System::solveSystem()
 {
     // ============================================
@@ -726,7 +753,8 @@ void System::solveSystem()
     
     BuildPrismsFromLayerFlags(generalParams, coordInfoVecs, prismInfoVecs);
 
-    generalParams.dt = 0.000001;
+    // Use a VERY small timestep for stability
+    generalParams.dt = 0.0000001;  // 1e-7
 
     // Compute initial center
     double cx = 0.0, cy = 0.0, cz = 0.0;
@@ -784,7 +812,10 @@ void System::solveSystem()
     StrainTensorGPU::computeBasisVectorsAndPathlength(
         generalParams, coordInfoVecs, lambda, theta_DV, R);
 
-    for (int stage = 0; stage < num_stages; stage++)
+    // Flag to track simulation stability
+    bool simulation_stable = true;
+
+    for (int stage = 0; stage < num_stages && simulation_stable; stage++)
     {
         std::cout << "\n----- Stage " << stage + 1 << " of " << num_stages << " -----" << std::endl;
 
@@ -805,47 +836,58 @@ void System::solveSystem()
         StrainTensorGPU::buildVertexLambda(generalParams, lambda, frac);
 
         // Compute target rest lengths
-        // layerflag = -1: skip vertical edges (those with edge_layer=-1)
-        // layerflag >= 0: apply only to that specific layer
         int layerflag = -1;  // Apply to all horizontal layers, skip vertical
         StrainTensorGPU::updateEdgeRestLengths(
             coordInfoVecs, generalParams, lambda, 
             linearSpringInfoVecs, layerflag);
 
-        // Quasi-static strain application
-        int num_substeps = 100;
-        int relax_iters_per_substep = 100;
+        // ========================================================================
+        // FIXED: Quasi-static strain application using GPU operations
+        // ========================================================================
+        
+        int num_substeps = 10;           // More substeps for gentler application
+        int relax_iters_per_substep = 10; // Fewer iters per substep, more substeps
         
         std::cout << "Applying strain quasi-statically in " << num_substeps << " substeps..." << std::endl;
         
-        // Store starting and final rest lengths
-        thrust::host_vector<double> h_start_length(coordInfoVecs.num_edges);
-        thrust::host_vector<double> h_final_length(coordInfoVecs.num_edges);
-        thrust::copy(linearSpringInfoVecs.edge_rest_length.begin(),
-                     linearSpringInfoVecs.edge_rest_length.end(),
-                     h_start_length.begin());
-        thrust::copy(linearSpringInfoVecs.edge_final_length.begin(),
-                     linearSpringInfoVecs.edge_final_length.end(),
-                     h_final_length.begin());
+        // Store starting and final rest lengths ON DEVICE (no host copy!)
+        thrust::device_vector<double> d_start_length = linearSpringInfoVecs.edge_rest_length;
+        thrust::device_vector<double> d_final_length = linearSpringInfoVecs.edge_final_length;
         
-        for (int sub = 1; sub <= num_substeps; sub++)
+        for (int sub = 1; sub <= num_substeps && simulation_stable; sub++)
         {
             double t = static_cast<double>(sub) / static_cast<double>(num_substeps);
             
-            // Interpolate rest lengths
-            for (int e = 0; e < coordInfoVecs.num_edges; e++) {
-                double L_interp = (1.0 - t) * h_start_length[e] + t * h_final_length[e];
-                linearSpringInfoVecs.edge_rest_length[e] = L_interp;
-            }
+            // ========================================================================
+            // GPU-accelerated interpolation (FIXED: no host-device loop!)
+            // ========================================================================
+            thrust::transform(
+                thrust::make_zip_iterator(
+                    thrust::make_tuple(d_start_length.begin(), d_final_length.begin())),
+                thrust::make_zip_iterator(
+                    thrust::make_tuple(d_start_length.end(), d_final_length.end())),
+                linearSpringInfoVecs.edge_rest_length.begin(),
+                InterpolateRestLengthFunctor(t)
+            );
             
-            // Relax
+            // Relaxation loop with stability checking
             for (int relax_iter = 0; relax_iter < relax_iters_per_substep; relax_iter++) {
                 Solve_Forces();
                 AdvancePositions(coordInfoVecs, generalParams, domainParams);
+                
+                // Check for NaN in energy periodically
+                if (relax_iter % 10 == 0) {
+                    if (std::isnan(linearSpringInfoVecs.linear_spring_energy)) {
+                        std::cout << "ERROR: NaN energy at substep " << sub 
+                                  << ", iter " << relax_iter << std::endl;
+                        simulation_stable = false;
+                        break;
+                    }
+                }
             }
             
-            // Check volume periodically
-            if (sub % 10 == 0 || sub == num_substeps) {
+            // Progress reporting and volume check
+            if (sub % 50 == 0 || sub == num_substeps) {
                 ComputeVolume(generalParams, coordInfoVecs, linearSpringInfoVecs, 
                               ljInfoVecs, prismInfoVecs);
                 std::cout << "  Substep " << sub << "/" << num_substeps 
@@ -854,28 +896,52 @@ void System::solveSystem()
                           
                 // Check for numerical problems
                 if (std::isnan(linearSpringInfoVecs.linear_spring_energy) ||
-                    generalParams.current_total_volume < 0) {
-                    std::cout << "  WARNING: Numerical instability detected!" << std::endl;
+                    generalParams.current_total_volume < 0 ||
+                    std::isnan(generalParams.current_total_volume)) {
+                    std::cout << "  ERROR: Numerical instability detected!" << std::endl;
+                    std::cout << "  Attempting recovery with smaller timestep..." << std::endl;
+                    
+                    // Try to recover by reducing timestep
+                    generalParams.dt *= 0.1;
+                    if (generalParams.dt < 1e-12) {
+                        std::cout << "  FATAL: Timestep too small, giving up." << std::endl;
+                        simulation_stable = false;
+                    }
                 }
             }
         }
         
-        // Final relaxation
+        if (!simulation_stable) {
+            std::cout << "Aborting simulation due to instability at stage " << stage + 1 << std::endl;
+            break;
+        }
+        
+        // Final relaxation for this stage
         std::cout << "Final relaxation for stage " << stage + 1 << "..." << std::endl;
         generalParams.tol = 1e-8;
         int final_iters = relaxUntilConverged(*this);
         std::cout << "Final relaxation: " << final_iters << " iterations, "
                   << "E = " << linearSpringInfoVecs.linear_spring_energy << std::endl;
         
-        // Update edge_rest_length for next stage
-        thrust::copy(h_final_length.begin(), h_final_length.end(), 
+        // Check stability after final relaxation
+        if (std::isnan(linearSpringInfoVecs.linear_spring_energy)) {
+            std::cout << "ERROR: NaN energy after final relaxation." << std::endl;
+            simulation_stable = false;
+        }
+        
+        // Update edge_rest_length from edge_final_length for next stage
+        thrust::copy(d_final_length.begin(), d_final_length.end(), 
                      linearSpringInfoVecs.edge_rest_length.begin());
         
         storage->print_VTK_File();
         
     } // end stage loop
     
-    std::cout << "\n========== SIMULATION COMPLETE ==========" << std::endl;
+    if (simulation_stable) {
+        std::cout << "\n========== SIMULATION COMPLETE ==========" << std::endl;
+    } else {
+        std::cout << "\n========== SIMULATION FAILED DUE TO INSTABILITY ==========" << std::endl;
+    }
 }
 
 

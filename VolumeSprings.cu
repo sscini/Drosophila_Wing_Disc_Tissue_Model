@@ -1,5 +1,6 @@
-// VolumeSprings.cu
+// VolumeSprings.cu - FIXED VERSION
 // Applies volume-conserving forces to maintain enclosed volume
+// With safeguards against numerical instability
 
 #include "System.h"
 #include "SystemStructures.h"
@@ -21,34 +22,65 @@ void ComputeVolumeSprings(
 {
     const int P = prismInfoVecs.num_prisms; 
     if (P <= 0) {
-        std::cout << "ComputeVolumeSprings: No prisms, skipping." << std::endl;
         return;
     }
 
     const double kv = generalParams.volume_spring_constant;
     if (kv == 0.0) {
-        std::cout << "ComputeVolumeSprings: kv=0, skipping." << std::endl;
         return;
     }
 
     const double Omega_s = generalParams.current_total_volume;
     const double Omega0 = generalParams.eq_total_volume;
     
-    // Avoid division issues if volume is near zero (mesh inversion)
-    if (std::fabs(Omega_s) < 1e-12) {
-        std::cout << "ComputeVolumeSprings: Volume near zero, skipping." << std::endl;
+    // ==================== SAFEGUARD 1: Check for NaN/Inf ====================
+    if (std::isnan(Omega_s) || std::isinf(Omega_s)) {
+        std::cout << "WARNING: Volume is NaN/Inf (" << Omega_s << "), skipping volume springs." << std::endl;
         return;
     }
-
-    // Force prefactor: F = -?E/?r = -2*k_v*(O - O0)*?O/?r
-    const double prefactor = -2.0 * kv * (Omega_s - Omega0);
-//
-//    // Debug output
-//    std::cout << "ComputeVolumeSprings: Omega=" << Omega_s 
-//              << ", Omega0=" << Omega0
-//              << ", dOmega=" << (Omega_s - Omega0)
-//              << ", kv=" << kv
-//              << ", prefactor=" << prefactor << std::endl;
+    
+    // ==================== SAFEGUARD 2: Check for negative volume ====================
+    // Negative volume indicates mesh inversion - catastrophic state
+    if (Omega_s < 0.0) {
+        std::cout << "WARNING: Negative volume detected (" << Omega_s 
+                  << "). Mesh may be inverted. Skipping volume springs to prevent further instability." << std::endl;
+        return;
+    }
+    
+    // ==================== SAFEGUARD 3: Check for extreme volume change ====================
+    double volume_ratio = Omega_s / Omega0;
+    double volume_diff = Omega_s - Omega0;
+    double prefactor;
+    
+    // If volume changed by more than 50%, clamp the force to prevent explosion
+    if (volume_ratio < 0.5 || volume_ratio > 2.0) {
+        std::cout << "WARNING: Extreme volume change (ratio=" << volume_ratio 
+                  << "). Clamping volume spring force." << std::endl;
+        
+        // Clamp the effective volume difference to at most 50% of equilibrium volume
+        double max_diff = 0.5 * std::fabs(Omega0);
+        double clamped_diff = std::max(-max_diff, std::min(max_diff, volume_diff));
+        prefactor = -2.0 * kv * clamped_diff;
+    }
+    else {
+        // Normal calculation
+        prefactor = -2.0 * kv * volume_diff;
+    }
+    
+    // ==================== SAFEGUARD 4: Check for NaN/Inf prefactor ====================
+    if (std::isnan(prefactor) || std::isinf(prefactor)) {
+        std::cout << "WARNING: Volume spring prefactor is NaN/Inf. Skipping." << std::endl;
+        return;
+    }
+    
+    // ==================== SAFEGUARD 5: Clamp maximum force magnitude ====================
+    // This prevents runaway forces from destroying the simulation
+    const double max_prefactor = 1e6;  // Adjust based on your simulation scale
+    if (std::fabs(prefactor) > max_prefactor) {
+        std::cout << "WARNING: Volume spring prefactor too large (" << prefactor 
+                  << "). Clamping to " << max_prefactor << std::endl;
+        prefactor = (prefactor > 0) ? max_prefactor : -max_prefactor;
+    }
 
     const int Nnodes = (int)coordInfoVecs.nodeLocX.size();
 
@@ -83,13 +115,4 @@ void ComputeVolumeSprings(
 
     // Apply transform to compute and add volume forces
     thrust::transform(begin, end, begin, functor);
-//    
-//    // Debug: Print force on first few nodes
-//    std::cout << "  Sample volume forces:" << std::endl;
-//    for (int i = 0; i < std::min(3, Nnodes); ++i) {
-//        std::cout << "    Node " << i << ": F=(" 
-//                  << coordInfoVecs.nodeForceX[i] << ", "
-//                  << coordInfoVecs.nodeForceY[i] << ", "
-//                  << coordInfoVecs.nodeForceZ[i] << ")" << std::endl;
-//    }
 }

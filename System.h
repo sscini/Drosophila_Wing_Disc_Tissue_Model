@@ -498,7 +498,7 @@ struct GeneralParams{
 	double current_total_volume;
 	double true_current_total_volume;
 	double eq_total_volume;
-	double volume_spring_constant = 5.0;
+	double volume_spring_constant = 0.5;
 	double volume_energy;
 	double eq_total_boundary_length;
 	double line_tension_energy;

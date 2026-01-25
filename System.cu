@@ -847,6 +847,7 @@ void System::solveSystem()
         
         int num_substeps = 10;           // More substeps for gentler application
         int relax_iters_per_substep = 10; // Fewer iters per substep, more substeps
+        generalParams.tol = 1e-4;
         
         std::cout << "Applying strain quasi-statically in " << num_substeps << " substeps..." << std::endl;
         

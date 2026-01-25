@@ -47,7 +47,7 @@ void Storage::print_VTK_File(void) {
         Number = "0" + std::to_string(iteration - 1);
     }
 
-    std::string initial = "Animation_realistic/01_08_26/_strain_test_case_2_";
+    std::string initial = "Animation_realistic/01_08_26/_strain_test_case_4_";
     std::string Filename = initial + Number + format;
 
     std::ofstream ofs(Filename.c_str());

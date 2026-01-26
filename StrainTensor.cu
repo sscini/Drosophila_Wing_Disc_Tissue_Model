@@ -1,803 +1,478 @@
-// StrainTensor.cu
-// IMPORTANT: Include SystemStructures.h FIRST to get full struct definitions
-#include "SystemStructures.h"
+// StrainTensor.cu  — DV-aware basis construction and rest-length projection
+//
+// Spontaneous strain tensor ? = ?_rr (e_R ? e_R) + ?_ff (e_f ? e_f) + ?_hh (e_h ? e_h)
+// with ?_rr = ?_iso * ?_aniso,  ?_ff = ?_iso / ?_aniso,  ?_hh = 1.
+//
+// Inside the DV stripe:
+//   - e_R is the *radial* direction away from the line segment joining O_D and O_V
+//     (the DV boundary line).
+//   - Only radial strain is applied: ?_rr as scheduled, ?_pp = 1, ?_ss = 1.
+// Outside the DV stripe:
+//   - e_R is constructed as before using OA from OD (dorsal) or OV (ventral),
+//     with side decided by a fixed in-plane vector perpendicular to the DV axis.
+//
+// Vertical/pillar edges are flagged as -1 and are not altered in the rest-length update.
+
 #include "StrainTensor.h"
-#include <cmath>
-#include <iostream>
-#include <algorithm>
-#include <vector>
-#include <thrust/copy.h>
-#include <thrust/host_vector.h>
+#include "SystemStructures.h"
+#include "System.h"
+
+#include <cuda_runtime.h>
+#include <thrust/tuple.h>
 #include <thrust/device_vector.h>
+#include <thrust/iterator/counting_iterator.h>
+#include <thrust/sequence.h>
+#include <cmath>
+
+#define BLOCK_SZ 256
+
+// ------------ tuple helpers -----------------
+template<int I>  __host__ __device__
+inline double c(const CVec3& v) { return thrust::get<I>(v); }
+
+__host__ __device__
+inline Mat_3x3 outer(const CVec3& a, const CVec3& b) {
+    return Mat_3x3(
+        CVec3( c<0>(a)*c<0>(b), c<0>(a)*c<1>(b), c<0>(a)*c<2>(b) ),
+        CVec3( c<1>(a)*c<0>(b), c<1>(a)*c<1>(b), c<1>(a)*c<2>(b) ),
+        CVec3( c<2>(a)*c<0>(b), c<2>(a)*c<1>(b), c<2>(a)*c<2>(b) )
+    );
+}
+
+__host__ __device__
+inline void axpy(double s, const Mat_3x3& A, Mat_3x3& C) {
+    // row 0
+    {
+        CVec3 r = thrust::get<0>(C);
+        CVec3 a = thrust::get<0>(A);
+        thrust::get<0>(r) += s * c<0>(a);
+        thrust::get<1>(r) += s * c<1>(a);
+        thrust::get<2>(r) += s * c<2>(a);
+        thrust::get<0>(C)   = r;
+    }
+    // row 1
+    {
+        CVec3 r = thrust::get<1>(C);
+        CVec3 a = thrust::get<1>(A);
+        thrust::get<0>(r) += s * c<0>(a);
+        thrust::get<1>(r) += s * c<1>(a);
+        thrust::get<2>(r) += s * c<2>(a);
+        thrust::get<1>(C)   = r;
+    }
+    // row 2
+    {
+        CVec3 r = thrust::get<2>(C);
+        CVec3 a = thrust::get<2>(A);
+        thrust::get<0>(r) += s * c<0>(a);
+        thrust::get<1>(r) += s * c<1>(a);
+        thrust::get<2>(r) += s * c<2>(a);
+        thrust::get<2>(C)   = r;
+    }
+}
+
+__host__ __device__
+inline CVec3 matVec(const Mat_3x3& M, const CVec3& v) {
+    return CVec3(
+        c<0>( thrust::get<0>(M) )*c<0>(v) + c<1>( thrust::get<0>(M) )*c<1>(v) + c<2>( thrust::get<0>(M) )*c<2>(v),
+        c<0>( thrust::get<1>(M) )*c<0>(v) + c<1>( thrust::get<1>(M) )*c<1>(v) + c<2>( thrust::get<1>(M) )*c<2>(v),
+        c<0>( thrust::get<2>(M) )*c<0>(v) + c<1>( thrust::get<2>(M) )*c<1>(v) + c<2>( thrust::get<2>(M) )*c<2>(v)
+    );
+}
+
+__host__ __device__
+inline double norm3(const CVec3& v) {
+    return sqrt(thrust::get<0>(v)*thrust::get<0>(v) +
+                thrust::get<1>(v)*thrust::get<1>(v) +
+                thrust::get<2>(v)*thrust::get<2>(v)) + 1e-14;
+}
+
+__host__ __device__
+inline CVec3 normalize(const CVec3& v) {
+    double n = norm3(v);
+    return CVec3( c<0>(v)/n, c<1>(v)/n, c<2>(v)/n );
+}
+
+__host__ __device__
+inline CVec3 cross(const CVec3& a, const CVec3& b) {
+    return CVec3(
+        c<1>(a)*c<2>(b) - c<2>(a)*c<1>(b),
+        c<2>(a)*c<0>(b) - c<0>(a)*c<2>(b),
+        c<0>(a)*c<1>(b) - c<1>(a)*c<0>(b)
+    );
+}
+
+__host__ __device__
+inline double dot3(const CVec3& a, const CVec3& b) {
+    return c<0>(a)*c<0>(b) + c<1>(a)*c<1>(b) + c<2>(a)*c<2>(b);
+}
+
+// ============================================================================
+// Mark DV stripe (independent of layer).
+// Stripe is |x - centerX| <= R * sin(theta_DV/2).
+// ============================================================================
+
+__global__
+void k_markDVstripe(int N,
+                    const double* x,
+                    double centerX, double R, double thetaDV,
+                    const int* /*isUpper, unused for gating*/,
+                    int* DVflag)
+{
+    int i = blockIdx.x*blockDim.x + threadIdx.x;
+    if (i>=N) return;
+
+    double halfw = R * sin(0.5*thetaDV);
+    DVflag[i] = (fabs(x[i] - centerX) <= halfw) ? 1 : 0;
+}
+
+// ============================================================================
+// Build local basis vectors (e_h, e_R, e_phi) at every vertex
+// DV-aware variant:
+//   - inside DV stripe: e_R is radial away from the O_D–O_V line segment
+//   - outside stripe:   e_R from OD/OV edge-centers on the appropriate side
+// ============================================================================
+
+__global__
+void k_buildBasis_DVaware(
+                  int N,
+                  const double* x, const double *y, const double *z,
+                  // sphere center for e_h (normal)
+                  double s_cx, double s_cy, double s_cz,
+                  // legacy disc center (kept for ABI; not used here)
+                  double /*cx*/, double /*cy*/, double /*cz*/,
+                  // DV axis endpoints (edge-to-edge through the stripe)
+                  CVec3 DV_A, CVec3 DV_B,
+                  // Dorsal/Ventral edge-center origins
+                  CVec3 O_D, CVec3 O_V,
+                  // outputs
+                  const int* DVflag,
+                  CVec3* e_h,
+                  CVec3* e_R,
+                  CVec3* e_phi)
+{
+    int i = blockIdx.x*blockDim.x + threadIdx.x;
+    if (i>=N) return;
+
+    // -------- per-vertex position
+    CVec3 P(x[i], y[i], z[i]);
+
+    // -------- surface normal e_h (use true sphere center)
+    CVec3 PS = CVec3(x[i]-s_cx, y[i]-s_cy, z[i]-s_cz);
+    CVec3 eh = normalize(PS);
+    e_h[i] = eh;
+
+    // -------- constant (global) DV axis and its in-plane perpendicular
+    CVec3 u = normalize( CVec3( c<0>(DV_B)-c<0>(DV_A),
+                                 c<1>(DV_B)-c<1>(DV_A),
+                                 c<2>(DV_B)-c<2>(DV_A) ) );   // axis along stripe
+
+    CVec3 Omid = CVec3( 0.5*(c<0>(DV_A)+c<0>(DV_B)),
+                        0.5*(c<1>(DV_A)+c<1>(DV_B)),
+                        0.5*(c<2>(DV_A)+c<2>(DV_B)) );
+
+    // disc normal (approx) from sphere center to DV mid
+    CVec3 n_disc = normalize( CVec3( c<0>(Omid)-s_cx, c<1>(Omid)-s_cy, c<2>(Omid)-s_cz ) );
+
+    // in-plane perpendicular to u, pointing from DV axis toward (say) Ventral
+    CVec3 v_perp = normalize( cross(n_disc, u) );  // n×u -> in-plane, ? to u
+
+    // -------- choose construction by region
+    CVec3 eR;
+    if (DVflag[i]) {
+        // ---------------------------------------------------------
+        // Inside the DV stripe:
+        //   - Define e_R as the radial direction away from the line
+        //     segment joining O_D and O_V (DV boundary line).
+        //   - Line parameterization: O_D + t*(O_V - O_D),  t?[0,1].
+        // ---------------------------------------------------------
+        CVec3 ODOV = CVec3(
+            c<0>(O_V) - c<0>(O_D),
+            c<1>(O_V) - c<1>(O_D),
+            c<2>(O_V) - c<2>(O_D)
+        );
+
+        double denom = dot3(ODOV, ODOV) + 1e-14; // avoid divide-by-zero
+        CVec3 w = CVec3(
+            c<0>(P) - c<0>(O_D),
+            c<1>(P) - c<1>(O_D),
+            c<2>(P) - c<2>(O_D)
+        );
+
+        // Projection parameter of P onto the O_D–O_V line
+        double t = dot3(w, ODOV) / denom;
+        // Clamp to the finite segment between O_D and O_V
+        if (t < 0.0) t = 0.0;
+        else if (t > 1.0) t = 1.0;
+
+        // Closest point on the DV boundary line
+        CVec3 Cline = CVec3(
+            c<0>(O_D) + t * c<0>(ODOV),
+            c<1>(O_D) + t * c<1>(ODOV),
+            c<2>(O_D) + t * c<2>(ODOV)
+        );
+
+        // Radial direction away from the DV boundary line
+        CVec3 radial = CVec3(
+            c<0>(P) - c<0>(Cline),
+            c<1>(P) - c<1>(Cline),
+            c<2>(P) - c<2>(Cline)
+        );
+
+        // Remove any normal component so e_R stays in-surface
+        double hdot = dot3(eh, radial);
+        CVec3 radial_tan = CVec3(
+            c<0>(radial) - hdot * c<0>(eh),
+            c<1>(radial) - hdot * c<1>(eh),
+            c<2>(radial) - hdot * c<2>(eh)
+        );
+
+        eR = normalize(radial_tan);
+    } else {
+        // Outside stripe: decide side by signed distance along v_perp
+        double sgn = dot3(
+            CVec3( c<0>(P)-c<0>(Omid),
+                   c<1>(P)-c<1>(Omid),
+                   c<2>(P)-c<2>(Omid) ),
+            v_perp
+        );
+
+        CVec3 O = (sgn >= 0.0) ? O_V : O_D;  // +side -> Ventral, -side -> Dorsal
+
+        // OA from region origin, projected to tangent plane, normalized
+        CVec3 OA = CVec3( c<0>(P)-c<0>(O), c<1>(P)-c<1>(O), c<2>(P)-c<2>(O) );
+        double hdot = dot3(eh, OA);
+        CVec3 OA_tan = CVec3(
+            c<0>(OA) - hdot*c<0>(eh),
+            c<1>(OA) - hdot*c<1>(eh),
+            c<2>(OA) - hdot*c<2>(eh)
+        );
+        eR = normalize(OA_tan);
+    }
+
+    e_R[i] = eR;
+    // right-handed complement
+    CVec3 ephi = normalize( cross(eh, eR) );
+    e_phi[i] = ephi;
+}
+
+// ============================================================================
+// Build ? at vertices
+// ? := radial distance from disc centre in the plane, normalized by disc radius.
+// ============================================================================
+
+__global__
+void k_buildLambda(int    N,
+                   const double *x, const double *y, const double *z,
+                   double cx, double cy, double cz,
+                   // outDV schedule
+                   double lam_iso_outDV_center,   double lam_iso_outDV_edge,
+                   double lam_aniso_outDV_center, double lam_aniso_outDV_edge,
+                   // inDV schedule
+                   double lam_iso_inDV_center,    double lam_iso_inDV_edge,
+                   double lam_aniso_inDV_center,  double lam_aniso_inDV_edge,
+                   // geometry
+                   double disc_radius,
+                   // outputs / work
+                   double *rho,
+                   double *lam_rr, double *lam_pp, double *lam_ss,
+                   const CVec3* e_R, const CVec3* e_phi, const CVec3* e_h,
+                   Mat_3x3* lam_alpha,
+                   const int * /*layerFlag*/,
+                   const int * DVflag)
+{
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    if (tid >= N) return;
+
+    // radial coordinate (flat projection from disc centre)
+    double dx = x[tid] - cx;
+    double dy = y[tid] - cy;
+    (void)z; (void)cz;
+    double r = sqrt(dx*dx + dy*dy) + 1e-14;
+    double p = (disc_radius > 0.0) ? (r / disc_radius) : 0.0;
+    p = (p < 0.0) ? 0.0 : ((p > 1.0) ? 1.0 : p);
+    rho[tid] = p;
+
+    // choose schedule
+    const bool inDV = (DVflag[tid] != 0);
+
+    double lamIso = inDV ?
+        (lam_iso_inDV_center    + (lam_iso_inDV_edge    - lam_iso_inDV_center)   * (p*p)) :
+        (lam_iso_outDV_center   + (lam_iso_outDV_edge   - lam_iso_outDV_center)  * (p*p));
+
+    double lamAni = inDV ?
+        (lam_aniso_inDV_center  + (lam_aniso_inDV_edge  - lam_aniso_inDV_center) * (p*p)) :
+        (lam_aniso_outDV_center + (lam_aniso_outDV_edge - lam_aniso_outDV_center)* (p*p));
+
+    lam_rr[tid] = lamIso * lamAni;
+    lam_pp[tid] = lamIso / lamAni;
+    lam_ss[tid] = 1.0; // no through-thickness growth
+
+    // Inside DV stripe: only radial strain; kill tangential strain
+    if (inDV) {
+        lam_pp[tid] = 1.0;
+    }
+
+    // assemble tensor
+    Mat_3x3 L = Mat_3x3{ CVec3(0,0,0), CVec3(0,0,0), CVec3(0,0,0) };
+    axpy(lam_rr[tid], outer(e_R [tid], e_R [tid]), L);
+    axpy(lam_pp[tid], outer(e_phi[tid], e_phi[tid]), L);
+    axpy(lam_ss[tid], outer(e_h  [tid], e_h  [tid]), L);
+    lam_alpha[tid] = L;
+}
+
+// ============================================================================
+// Rest-length update by full projection of ? onto the edge direction.
+// Vertical edges are flagged as -1 and are skipped.
+// ============================================================================
+
+__global__
+void k_edgeRestProj(int    E,
+                    const int    *e2n1,  const int *e2n2,
+                    const double *x,     const double *y,   const double *z,
+                    const Mat_3x3 *lam_alpha,
+                    double *L0, double *Lstar,
+                    const int *edgeLayerFlags) // -1 ? vertical/pillar
+{
+    int eid = blockIdx.x*blockDim.x + threadIdx.x;
+    if (eid >= E) return;
+
+    // Do not alter vertical/pillar edges. Layer flag = -1.
+    if (edgeLayerFlags[eid] == -1) return;
+
+    int a = e2n1[eid];
+    int b = e2n2[eid];
+
+    CVec3 dX = CVec3(x[a]-x[b], y[a]-y[b], z[a]-z[b]);
+    L0[eid] = norm3(dX);
+
+    // average tensor at edge endpoints
+    Mat_3x3 La = lam_alpha[a], Lb = lam_alpha[b], Lp;
+
+    thrust::get<0>(Lp) = CVec3(
+        0.5*( c<0>(thrust::get<0>(La)) + c<0>(thrust::get<0>(Lb)) ),
+        0.5*( c<1>(thrust::get<0>(La)) + c<1>(thrust::get<0>(Lb)) ),
+        0.5*( c<2>(thrust::get<0>(La)) + c<2>(thrust::get<0>(Lb)) ) );
+
+    thrust::get<1>(Lp) = CVec3(
+        0.5*( c<0>(thrust::get<1>(La)) + c<0>(thrust::get<1>(Lb)) ),
+        0.5*( c<1>(thrust::get<1>(La)) + c<1>(thrust::get<1>(Lb)) ),
+        0.5*( c<2>(thrust::get<1>(La)) + c<2>(thrust::get<1>(Lb)) ) );
+
+    thrust::get<2>(Lp) = CVec3(
+        0.5*( c<0>(thrust::get<2>(La)) + c<0>(thrust::get<2>(Lb)) ),
+        0.5*( c<1>(thrust::get<2>(La)) + c<1>(thrust::get<2>(Lb)) ),
+        0.5*( c<2>(thrust::get<2>(La)) + c<2>(thrust::get<2>(Lb)) ) );
+
+    CVec3 dX_stretch = matVec(Lp, dX);
+    Lstar[eid] = norm3(dX_stretch);
+}
+
+// ============================================================================
+// Public wrappers
+// ============================================================================
 
 namespace StrainTensorGPU {
 
-// ============================================================================
-// Helper functions (file-local)
-// ============================================================================
-
-static inline void normalize3(double& x, double& y, double& z) {
-    double len = std::sqrt(x*x + y*y + z*z);
-    if (len > 1e-10) {
-        x /= len;
-        y /= len;
-        z /= len;
-    }
-}
-
-static inline double arcDistOnSphere(double x1, double y1, double z1,
-                                      double x2, double y2, double z2, double R) {
-    double dot = (x1*x2 + y1*y2 + z1*z2) / (R*R);
-    dot = std::max(-1.0, std::min(1.0, dot));
-    return R * std::acos(dot);
-}
-
-// ============================================================================
-// computeBasisVectorsAndPathlength
-// ============================================================================
-void computeBasisVectorsAndPathlength(
-    GeneralParams& generalParams,
-    CoordInfoVecs& coordInfoVecs,
-    LambdaField& lambda,
-    double theta_DV,
-    double R_input)
+void buildVertexLambda(GeneralParams& gp,
+                       CoordInfoVecs& coord,
+                       LambdaField&   field,
+                       double         tFrac /*unused but kept for API parity*/)
 {
-    const int N = static_cast<int>(coordInfoVecs.nodeLocX.size());
-    
-    std::cout << "Computing basis vectors and pathlength for " << N << " nodes..." << std::endl;
-    std::cout << "  theta_DV = " << theta_DV << " rad" << std::endl;
-    
-    lambda.resize(N);
-    
-    // Copy node positions from device to host
-    thrust::host_vector<double> h_nodeLocX(N), h_nodeLocY(N), h_nodeLocZ(N);
-    thrust::copy(coordInfoVecs.nodeLocX.begin(), coordInfoVecs.nodeLocX.end(), h_nodeLocX.begin());
-    thrust::copy(coordInfoVecs.nodeLocY.begin(), coordInfoVecs.nodeLocY.end(), h_nodeLocY.begin());
-    thrust::copy(coordInfoVecs.nodeLocZ.begin(), coordInfoVecs.nodeLocZ.end(), h_nodeLocZ.begin());
-    
-    // Auto-detect sphere radius from mesh
-    double R = 0.0;
-    double r_min = 1e20, r_max = 0.0;
-    for (int i = 0; i < N; i++) {
-        double r = std::sqrt(h_nodeLocX[i]*h_nodeLocX[i] + 
-                             h_nodeLocY[i]*h_nodeLocY[i] + 
-                             h_nodeLocZ[i]*h_nodeLocZ[i]);
-        r_min = std::min(r_min, r);
-        r_max = std::max(r_max, r);
-    }
-    R = r_max;
-    
-    std::cout << "  Auto-detected radii: min=" << r_min << ", max=" << r_max << std::endl;
-    std::cout << "  Using R=" << R << " for pathlength calculation" << std::endl;
-    
-    if (R < 1e-10) {
-        std::cerr << "ERROR: Sphere radius is essentially zero!" << std::endl;
-        return;
-    }
-    
-    double DV_boundary = R * std::sin(theta_DV / 2.0);
-    std::cout << "  DV boundary (x-coordinate): |x| <= " << DV_boundary << std::endl;
-    
-    // First pass: compute pathlength and basis vectors
-    double max_pathlength_inDV = 0.0;
-    double max_pathlength_outDV = 0.0;
-    int count_inDV = 0, count_outDV = 0;
-    
-    for (int i = 0; i < N; i++) {
-        double x = h_nodeLocX[i];
-        double y = h_nodeLocY[i];
-        double z = h_nodeLocZ[i];
-        double r = std::sqrt(x*x + y*y + z*z);
-        
-        if (r < 1e-10) r = 1e-10;
-        
-        // Surface normal (e_h)
-        lambda.e_h_x[i] = x / r;
-        lambda.e_h_y[i] = y / r;
-        lambda.e_h_z[i] = z / r;
-        
-        // DV region check
-        bool inDV = (std::abs(x) <= DV_boundary);
-        lambda.nodes_in_DV[i] = inDV ? 1 : 0;
-        
-        if (inDV) count_inDV++;
-        else count_outDV++;
-        
-        // Project to outer sphere for pathlength calculation
-        double x_norm = x * R / r;
-        double y_norm = y * R / r;
-        double z_norm = z * R / r;
-        
-        // Center point
-        double cx, cy, cz;
-        if (inDV) {
-            double temp = R*R - x_norm*x_norm;
-            cx = x_norm;
-            cy = 0.0;
-            cz = (temp > 0) ? std::sqrt(temp) : R;
-        } else {
-            double sign_x = (x >= 0) ? 1.0 : -1.0;
-            double theta_center = theta_DV / 2.0;
-            cx = R * std::sin(theta_center) * sign_x;
-            cy = 0.0;
-            cz = R * std::cos(theta_center);
-        }
-        
-        // Pathlength
-        double pathlength = arcDistOnSphere(x_norm, y_norm, z_norm, cx, cy, cz, R);
-        lambda.pathlength_scaled[i] = pathlength;
-        
-        if (inDV) {
-            max_pathlength_inDV = std::max(max_pathlength_inDV, pathlength);
-        } else {
-            max_pathlength_outDV = std::max(max_pathlength_outDV, pathlength);
-        }
-        
-        // e_R: radial direction in surface
-        double oax = x_norm - cx;
-        double oay = y_norm - cy;
-        double oaz = z_norm - cz;
-        normalize3(oax, oay, oaz);
-        
-        double eh_dot_eoa = lambda.e_h_x[i]*oax + lambda.e_h_y[i]*oay + lambda.e_h_z[i]*oaz;
-        double er_x = oax - eh_dot_eoa * lambda.e_h_x[i];
-        double er_y = oay - eh_dot_eoa * lambda.e_h_y[i];
-        double er_z = oaz - eh_dot_eoa * lambda.e_h_z[i];
-        normalize3(er_x, er_y, er_z);
-        
-        lambda.e_R_x[i] = er_x;
-        lambda.e_R_y[i] = er_y;
-        lambda.e_R_z[i] = er_z;
-        
-        // e_phi: circumferential direction = e_h × e_R
-        lambda.e_phi_x[i] = lambda.e_h_y[i] * er_z - lambda.e_h_z[i] * er_y;
-        lambda.e_phi_y[i] = lambda.e_h_z[i] * er_x - lambda.e_h_x[i] * er_z;
-        lambda.e_phi_z[i] = lambda.e_h_x[i] * er_y - lambda.e_h_y[i] * er_x;
-    }
-    
-    // Normalize pathlength
-    std::cout << "  Max pathlength (before norm): inDV=" << max_pathlength_inDV 
-              << ", outDV=" << max_pathlength_outDV << std::endl;
-    
-    for (int i = 0; i < N; i++) {
-        bool inDV = (lambda.nodes_in_DV[i] == 1);
-        if (inDV && max_pathlength_inDV > 1e-10) {
-            lambda.pathlength_scaled[i] /= max_pathlength_inDV;
-        } else if (!inDV && max_pathlength_outDV > 1e-10) {
-            lambda.pathlength_scaled[i] /= max_pathlength_outDV;
-        }
-    }
-    
-    std::cout << "  Nodes in DV: " << count_inDV << ", nodes in outDV: " << count_outDV << std::endl;
+    // size guards
+    if (field.lam_rr.size() != coord.nodeLocX.size())
+        field.resize(coord.nodeLocX.size());
+    if (gp.rho.size() != coord.nodeLocX.size())
+        gp.rho.resize(coord.nodeLocX.size());
+
+    const int N = static_cast<int>(coord.nodeLocX.size());
+    dim3 grid((N + BLOCK_SZ - 1) / BLOCK_SZ);
+
+    // allocate (once) the DV mask
+    if (gp.nodes_in_DV.size() != N) gp.nodes_in_DV.resize(N);
+
+    // --- mark DV stripe: all layers participate in DV ---
+    k_markDVstripe<<<grid,BLOCK_SZ>>>(
+        N,
+        thrust::raw_pointer_cast(coord.nodeLocX.data()),
+        gp.centerX,
+        gp.disc_radius,      // radius used for stripe half-width
+        gp.theta_DV,         // DV angular width (radians)
+        thrust::raw_pointer_cast(gp.nodes_in_upperhem.data()), // kept for ABI
+        thrust::raw_pointer_cast(gp.nodes_in_DV.data()) );
+    cudaDeviceSynchronize();
+
+    // Precompute constant tuples for the DV-aware basis kernel
+    CVec3 DV_A(gp.DV_ax, gp.DV_ay, gp.DV_az);
+    CVec3 DV_B(gp.DV_bx, gp.DV_by, gp.DV_bz);
+    CVec3 O_D(gp.ODx,    gp.ODy,    gp.ODz);
+    CVec3 O_V(gp.OVx,    gp.OVy,    gp.OVz);
+
+    // --- build local bases on every vertex (DV-aware) ---
+    k_buildBasis_DVaware<<<grid,BLOCK_SZ>>>(
+        N,
+        thrust::raw_pointer_cast(coord.nodeLocX.data()),
+        thrust::raw_pointer_cast(coord.nodeLocY.data()),
+        thrust::raw_pointer_cast(coord.nodeLocZ.data()),
+        gp.c_dx, gp.c_dy, gp.c_dz,          // sphere center FOR e_h
+        gp.centerX, gp.centerY, gp.centerZ, // (kept for ABI, not used here)
+        DV_A, DV_B, O_D, O_V,
+        thrust::raw_pointer_cast(gp.nodes_in_DV.data()),
+        thrust::raw_pointer_cast(field.e_h.data()),
+        thrust::raw_pointer_cast(field.e_R.data()),
+        thrust::raw_pointer_cast(field.e_phi.data()) );
+    cudaDeviceSynchronize();
+
+    // --- build ? field (uses DV mask & the basis we just built) ---
+    k_buildLambda<<<grid,BLOCK_SZ>>>(
+        N,
+        thrust::raw_pointer_cast(coord.nodeLocX.data()),
+        thrust::raw_pointer_cast(coord.nodeLocY.data()),
+        thrust::raw_pointer_cast(coord.nodeLocZ.data()),
+        gp.centerX, gp.centerY, gp.centerZ,
+        // outDV
+        gp.lambda_iso_center_outDV,   gp.lambda_iso_edge_outDV,
+        gp.lambda_aniso_center_outDV, gp.lambda_aniso_edge_outDV,
+        // inDV
+        gp.lambda_iso_center_inDV,    gp.lambda_iso_edge_inDV,
+        gp.lambda_aniso_center_inDV,  gp.lambda_aniso_edge_inDV,
+        // geometry
+        gp.disc_radius,
+        // outputs
+        thrust::raw_pointer_cast(gp.rho.data()),
+        thrust::raw_pointer_cast(field.lam_rr.data()),
+        thrust::raw_pointer_cast(field.lam_pp.data()),
+        thrust::raw_pointer_cast(field.lam_ss.data()),
+        thrust::raw_pointer_cast(field.e_R.data()),
+        thrust::raw_pointer_cast(field.e_phi.data()),
+        thrust::raw_pointer_cast(field.e_h.data()),
+        thrust::raw_pointer_cast(field.lam_alpha.data()),
+        thrust::raw_pointer_cast(gp.nodes_in_upperhem.data()), // not used to gate DV
+        thrust::raw_pointer_cast(gp.nodes_in_DV.data()) );
+    cudaDeviceSynchronize();
 }
 
-// ============================================================================
-// buildVertexLambda
-// ============================================================================
-void buildVertexLambda(
-    GeneralParams& generalParams,
-    LambdaField& lambda,
-    double frac)
+void updateEdgeRestLengths(CoordInfoVecs&  coord,
+                           GeneralParams&  gp,
+                           const LambdaField& field,
+                           LinearSpringInfoVecs& lsInfo,
+                           int /*targetLayer, unused now*/)
 {
-    const int N = static_cast<int>(lambda.pathlength_scaled.size());
-    
-    std::cout << "Building vertex lambda values for " << N << " nodes (frac = " << frac << ")..." << std::endl;
-    
-    int count_inDV = 0, count_outDV = 0;
-    double avg_lambda_iso = 0.0, avg_lambda_aniso = 0.0;
-    
-    for (int i = 0; i < N; i++) {
-        double p = lambda.pathlength_scaled[i];
-        p = std::max(0.0, std::min(1.0, p));
-        
-        bool inDV = (lambda.nodes_in_DV[i] == 1);
-        
-        double lambda_iso, lambda_aniso;
-        
-        if (inDV) {
-            lambda_iso = generalParams.lambda_iso_center_inDV + 
-                        (generalParams.lambda_iso_edge_inDV - generalParams.lambda_iso_center_inDV) * p;
-            lambda_aniso = generalParams.lambda_aniso_center_inDV + 
-                          (generalParams.lambda_aniso_edge_inDV - generalParams.lambda_aniso_center_inDV) * p;
-            count_inDV++;
-        } else {
-            lambda_iso = generalParams.lambda_iso_center_outDV + 
-                        (generalParams.lambda_iso_edge_outDV - generalParams.lambda_iso_center_outDV) * p;
-            lambda_aniso = generalParams.lambda_aniso_center_outDV + 
-                          (generalParams.lambda_aniso_edge_outDV - generalParams.lambda_aniso_center_outDV) * p;
-            count_outDV++;
-        }
-        
-        // Fractional strain for quasi-static loading
-        lambda_iso = 1.0 + frac * (lambda_iso - 1.0);
-        lambda_aniso = 1.0 + frac * (lambda_aniso - 1.0);
-        
-        // ?_RR = ?_iso * ?_aniso, ?_ff = ?_iso / ?_aniso
-        lambda.lambda_RR[i] = lambda_iso * lambda_aniso;
-        lambda.lambda_phiphi[i] = lambda_iso / lambda_aniso;
-        lambda.lambda_hh[i] = 1.0;
-        
-        avg_lambda_iso += lambda_iso;
-        avg_lambda_aniso += lambda_aniso;
-    }
-    
-    if (N > 0) {
-        avg_lambda_iso /= N;
-        avg_lambda_aniso /= N;
-    }
-    
-    std::cout << "  Lambda stats: inDV=" << count_inDV << ", outDV=" << count_outDV << std::endl;
-    std::cout << "  Avg lambda_iso=" << avg_lambda_iso << ", avg lambda_aniso=" << avg_lambda_aniso << std::endl;
+    const int E = static_cast<int>(coord.num_edges);
+    dim3 grid((E + BLOCK_SZ - 1) / BLOCK_SZ);
+
+    k_edgeRestProj<<<grid,BLOCK_SZ>>>(
+        E,
+        thrust::raw_pointer_cast(coord.edges2Nodes_1.data()),
+        thrust::raw_pointer_cast(coord.edges2Nodes_2.data()),
+        thrust::raw_pointer_cast(coord.nodeLocX.data()),
+        thrust::raw_pointer_cast(coord.nodeLocY.data()),
+        thrust::raw_pointer_cast(coord.nodeLocZ.data()),
+        thrust::raw_pointer_cast(field.lam_alpha.data()),
+        thrust::raw_pointer_cast(lsInfo.edge_initial_length.data()),
+        thrust::raw_pointer_cast(lsInfo.edge_final_length.data()),
+        thrust::raw_pointer_cast(gp.edges_in_upperhem.data())   // here: -1 denotes vertical edges
+    );
+    cudaDeviceSynchronize();
 }
-
-// ============================================================================
-// updateEdgeRestLengths
-// ============================================================================
-void updateEdgeRestLengths(
-    CoordInfoVecs& coordInfoVecs,
-    GeneralParams& generalParams,
-    LambdaField& lambda,
-    LinearSpringInfoVecs& linearSpringInfoVecs,
-    int layerflag)
-{
-    const int num_edges = coordInfoVecs.num_edges;
-    const int N = static_cast<int>(lambda.pathlength_scaled.size());
-    
-    std::cout << "Updating rest lengths for " << num_edges << " edges..." << std::endl;
-    std::cout << "  layerflag=" << layerflag << " (>=0 means apply to that layer only, <0 means skip vertical)" << std::endl;
-    
-    // Copy data from device to host
-    thrust::host_vector<double> h_nodeLocX(N), h_nodeLocY(N), h_nodeLocZ(N);
-    thrust::copy(coordInfoVecs.nodeLocX.begin(), coordInfoVecs.nodeLocX.end(), h_nodeLocX.begin());
-    thrust::copy(coordInfoVecs.nodeLocY.begin(), coordInfoVecs.nodeLocY.end(), h_nodeLocY.begin());
-    thrust::copy(coordInfoVecs.nodeLocZ.begin(), coordInfoVecs.nodeLocZ.end(), h_nodeLocZ.begin());
-    
-    thrust::host_vector<int> h_edges2Nodes_1(num_edges), h_edges2Nodes_2(num_edges);
-    thrust::copy(coordInfoVecs.edges2Nodes_1.begin(), coordInfoVecs.edges2Nodes_1.end(), h_edges2Nodes_1.begin());
-    thrust::copy(coordInfoVecs.edges2Nodes_2.begin(), coordInfoVecs.edges2Nodes_2.end(), h_edges2Nodes_2.begin());
-    
-    thrust::host_vector<double> h_initial_length(num_edges);
-    thrust::copy(linearSpringInfoVecs.edge_initial_length.begin(), 
-                 linearSpringInfoVecs.edge_initial_length.end(), h_initial_length.begin());
-    
-    // Copy edge layer flags
-    thrust::host_vector<int> h_edges_layer(num_edges, 0);
-    if (generalParams.edges_in_upperhem.size() >= static_cast<size_t>(num_edges)) {
-        thrust::copy(generalParams.edges_in_upperhem.begin(), 
-                     generalParams.edges_in_upperhem.end(), h_edges_layer.begin());
-    }
-    
-    // Output vector
-    thrust::host_vector<double> h_final_length(num_edges);
-    
-    int edges_modified = 0;
-    int edges_skipped_vertical = 0;
-    int edges_skipped_layer = 0;
-    double max_strain = 0.0;
-    double avg_strain = 0.0;
-    
-    for (int e = 0; e < num_edges; e++) {
-        int v1 = h_edges2Nodes_1[e];
-        int v2 = h_edges2Nodes_2[e];
-        int edge_layer = h_edges_layer[e];
-        
-        // Bounds check
-        if (v1 < 0 || v1 >= N || v2 < 0 || v2 >= N) {
-            h_final_length[e] = h_initial_length[e];
-            continue;
-        }
-        
-        // =====================================================
-        // CRITICAL: Skip VERTICAL edges (layer flag == -1)
-        // Vertical edges connect different layers and should NOT
-        // be transformed by the in-plane strain tensor!
-        // =====================================================
-        if (edge_layer == -1) {
-            h_final_length[e] = h_initial_length[e];
-            edges_skipped_vertical++;
-            continue;
-        }
-        
-        // If a specific layer is requested, skip other layers
-        if (layerflag >= 0 && edge_layer != layerflag) {
-            h_final_length[e] = h_initial_length[e];
-            edges_skipped_layer++;
-            continue;
-        }
-        
-        // Get spring vector
-        double dx = h_nodeLocX[v2] - h_nodeLocX[v1];
-        double dy = h_nodeLocY[v2] - h_nodeLocY[v1];
-        double dz = h_nodeLocZ[v2] - h_nodeLocZ[v1];
-        
-        // Average lambda values at endpoints
-        double avg_RR = 0.5 * (lambda.lambda_RR[v1] + lambda.lambda_RR[v2]);
-        double avg_phiphi = 0.5 * (lambda.lambda_phiphi[v1] + lambda.lambda_phiphi[v2]);
-        double avg_hh = 0.5 * (lambda.lambda_hh[v1] + lambda.lambda_hh[v2]);
-        
-        // Average and normalize basis vectors
-        double avg_eR_x = 0.5 * (lambda.e_R_x[v1] + lambda.e_R_x[v2]);
-        double avg_eR_y = 0.5 * (lambda.e_R_y[v1] + lambda.e_R_y[v2]);
-        double avg_eR_z = 0.5 * (lambda.e_R_z[v1] + lambda.e_R_z[v2]);
-        normalize3(avg_eR_x, avg_eR_y, avg_eR_z);
-        
-        double avg_ephi_x = 0.5 * (lambda.e_phi_x[v1] + lambda.e_phi_x[v2]);
-        double avg_ephi_y = 0.5 * (lambda.e_phi_y[v1] + lambda.e_phi_y[v2]);
-        double avg_ephi_z = 0.5 * (lambda.e_phi_z[v1] + lambda.e_phi_z[v2]);
-        normalize3(avg_ephi_x, avg_ephi_y, avg_ephi_z);
-        
-        double avg_eh_x = 0.5 * (lambda.e_h_x[v1] + lambda.e_h_x[v2]);
-        double avg_eh_y = 0.5 * (lambda.e_h_y[v1] + lambda.e_h_y[v2]);
-        double avg_eh_z = 0.5 * (lambda.e_h_z[v1] + lambda.e_h_z[v2]);
-        normalize3(avg_eh_x, avg_eh_y, avg_eh_z);
-        
-        // Project spring vector onto basis
-        double v_dot_eR = dx*avg_eR_x + dy*avg_eR_y + dz*avg_eR_z;
-        double v_dot_ephi = dx*avg_ephi_x + dy*avg_ephi_y + dz*avg_ephi_z;
-        double v_dot_eh = dx*avg_eh_x + dy*avg_eh_y + dz*avg_eh_z;
-        
-        // Transform: v' = ? · v
-        double vx_p = avg_RR * v_dot_eR * avg_eR_x + 
-                      avg_phiphi * v_dot_ephi * avg_ephi_x + 
-                      avg_hh * v_dot_eh * avg_eh_x;
-        double vy_p = avg_RR * v_dot_eR * avg_eR_y + 
-                      avg_phiphi * v_dot_ephi * avg_ephi_y + 
-                      avg_hh * v_dot_eh * avg_eh_y;
-        double vz_p = avg_RR * v_dot_eR * avg_eR_z + 
-                      avg_phiphi * v_dot_ephi * avg_ephi_z + 
-                      avg_hh * v_dot_eh * avg_eh_z;
-        
-        // New rest length
-        double new_length = std::sqrt(vx_p*vx_p + vy_p*vy_p + vz_p*vz_p);
-        
-        // Sanity check - cap maximum strain to prevent instability
-        double initial_length = h_initial_length[e];
-        if (initial_length > 1e-10) {
-            double strain = (new_length - initial_length) / initial_length;
-            
-            // Cap strain at ±50% to prevent instability
-            const double MAX_STRAIN = 0.5;
-            if (strain > MAX_STRAIN) {
-                new_length = initial_length * (1.0 + MAX_STRAIN);
-            } else if (strain < -MAX_STRAIN) {
-                new_length = initial_length * (1.0 - MAX_STRAIN);
-            }
-            
-            // Recalculate strain after capping
-            strain = (new_length - initial_length) / initial_length;
-            avg_strain += std::abs(strain);
-            max_strain = std::max(max_strain, std::abs(strain));
-            edges_modified++;
-        }
-        
-        h_final_length[e] = new_length;
-    }
-    
-    // Copy results back to device
-    thrust::copy(h_final_length.begin(), h_final_length.end(), 
-                 linearSpringInfoVecs.edge_final_length.begin());
-    
-    if (edges_modified > 0) {
-        avg_strain /= edges_modified;
-    }
-    
-    std::cout << "  Edges modified: " << edges_modified << std::endl;
-    std::cout << "  Edges skipped (vertical): " << edges_skipped_vertical << std::endl;
-    std::cout << "  Edges skipped (wrong layer): " << edges_skipped_layer << std::endl;
-    std::cout << "  Avg strain: " << avg_strain * 100 << "%, max strain: " << max_strain * 100 << "%" << std::endl;
-}
-
-
-// ============================================================================
-// PROGRESSIVE STRAIN TESTING for getLambdaCoeffsForStage()
-// 
-// Use this to systematically find the maximum stable strain level
-// ============================================================================
-
-void getLambdaCoeffsForStage(
-    int stage,
-    double& iso_center_outDV, double& iso_edge_outDV,
-    double& aniso_center_outDV, double& aniso_edge_outDV,
-    double& iso_center_inDV, double& iso_edge_inDV,
-    double& aniso_center_inDV, double& aniso_edge_inDV)
-{
-    // =====================================================================
-    // STRAIN TESTING CONFIGURATION
-    // Change TEST_LEVEL to test different strain amounts
-    // =====================================================================
-    
-    // Test levels:
-    // 0 = No strain (all 1.0) - VERIFIED WORKING
-    // 1 = 2% uniform isotropic
-    // 2 = 5% uniform isotropic  
-    // 3 = 10% uniform isotropic
-    // 4 = 15% uniform isotropic
-    // 5 = 20% uniform isotropic (close to paper values)
-    // 6 = Paper values with reduced magnitude (50%)
-    // 7 = Full paper values
-    
-    const int TEST_LEVEL = 4;  // <-- CHANGE THIS TO TEST DIFFERENT LEVELS
-    
-    switch (TEST_LEVEL) {
-        case 0:
-            // No strain - verified stable
-            iso_center_outDV = 1.0;
-            iso_edge_outDV = 1.0;
-            aniso_center_outDV = 1.0;
-            aniso_edge_outDV = 1.0;
-            iso_center_inDV = 1.0;
-            iso_edge_inDV = 1.0;
-            aniso_center_inDV = 1.0;
-            aniso_edge_inDV = 1.0;
-            std::cout << "TEST_LEVEL 0: No strain (all lambda = 1.0)" << std::endl;
-            break;
-            
-        case 1:
-            // 2% uniform isotropic growth
-            iso_center_outDV = 1.02;
-            iso_edge_outDV = 1.02;
-            aniso_center_outDV = 1.0;
-            aniso_edge_outDV = 1.0;
-            iso_center_inDV = 1.02;
-            iso_edge_inDV = 1.02;
-            aniso_center_inDV = 1.0;
-            aniso_edge_inDV = 1.0;
-            std::cout << "TEST_LEVEL 1: 2% uniform isotropic" << std::endl;
-            break;
-            
-        case 2:
-            // 5% uniform isotropic growth
-            iso_center_outDV = 1.05;
-            iso_edge_outDV = 1.05;
-            aniso_center_outDV = 1.0;
-            aniso_edge_outDV = 1.0;
-            iso_center_inDV = 1.05;
-            iso_edge_inDV = 1.05;
-            aniso_center_inDV = 1.0;
-            aniso_edge_inDV = 1.0;
-            std::cout << "TEST_LEVEL 2: 5% uniform isotropic" << std::endl;
-            break;
-            
-        case 3:
-            // 10% uniform isotropic growth
-            iso_center_outDV = 1.10;
-            iso_edge_outDV = 1.10;
-            aniso_center_outDV = 1.0;
-            aniso_edge_outDV = 1.0;
-            iso_center_inDV = 1.10;
-            iso_edge_inDV = 1.10;
-            aniso_center_inDV = 1.0;
-            aniso_edge_inDV = 1.0;
-            std::cout << "TEST_LEVEL 3: 10% uniform isotropic" << std::endl;
-            break;
-            
-        case 4:
-            // 15% uniform isotropic growth
-            iso_center_outDV = 1.15;
-            iso_edge_outDV = 1.15;
-            aniso_center_outDV = 1.0;
-            aniso_edge_outDV = 1.0;
-            iso_center_inDV = 1.15;
-            iso_edge_inDV = 1.15;
-            aniso_center_inDV = 1.0;
-            aniso_edge_inDV = 1.0;
-            std::cout << "TEST_LEVEL 4: 15% uniform isotropic" << std::endl;
-            break;
-            
-        case 5:
-            // 20% uniform isotropic growth (similar magnitude to paper)
-            iso_center_outDV = 1.20;
-            iso_edge_outDV = 1.20;
-            aniso_center_outDV = 1.0;
-            aniso_edge_outDV = 1.0;
-            iso_center_inDV = 1.20;
-            iso_edge_inDV = 1.20;
-            aniso_center_inDV = 1.0;
-            aniso_edge_inDV = 1.0;
-            std::cout << "TEST_LEVEL 5: 20% uniform isotropic" << std::endl;
-            break;
-            
-        case 6:
-            // Paper values at 50% magnitude
-            // Original stage 0 values, but (lambda - 1) * 0.5 + 1
-            iso_center_outDV = 1.0 + (1.20789 - 1.0) * 0.5;   // = 1.104
-            iso_edge_outDV = 1.0 + (1.08383 - 1.0) * 0.5;     // = 1.042
-            aniso_center_outDV = 1.0 + (1.01054 - 1.0) * 0.5; // = 1.005
-            aniso_edge_outDV = 1.0 + (1.07226 - 1.0) * 0.5;   // = 1.036
-            iso_center_inDV = 1.0 + (1.18401 - 1.0) * 0.5;    // = 1.092
-            iso_edge_inDV = 1.0 + (1.08552 - 1.0) * 0.5;      // = 1.043
-            aniso_center_inDV = 1.0 + (1.03128 - 1.0) * 0.5;  // = 1.016
-            aniso_edge_inDV = 1.0 + (0.90224 - 1.0) * 0.5;    // = 0.951
-            std::cout << "TEST_LEVEL 6: Paper values at 50% magnitude" << std::endl;
-            break;
-            
-        case 7:
-        default:
-            // Full paper values (original hardcoded values for stage 0)
-            iso_center_outDV = 1.20789;
-            iso_edge_outDV = 1.08383;
-            aniso_center_outDV = 1.01054;
-            aniso_edge_outDV = 1.07226;
-            iso_center_inDV = 1.18401;
-            iso_edge_inDV = 1.08552;
-            aniso_center_inDV = 1.03128;
-            aniso_edge_inDV = 0.90224;
-            std::cout << "TEST_LEVEL 7: Full paper values (stage 0)" << std::endl;
-            break;
-    }
-    
-    // Print the actual values being used
-    std::cout << "  outDV: iso_center=" << iso_center_outDV 
-              << ", iso_edge=" << iso_edge_outDV
-              << ", aniso_center=" << aniso_center_outDV 
-              << ", aniso_edge=" << aniso_edge_outDV << std::endl;
-    std::cout << "  inDV:  iso_center=" << iso_center_inDV 
-              << ", iso_edge=" << iso_edge_inDV
-              << ", aniso_center=" << aniso_center_inDV 
-              << ", aniso_edge=" << aniso_edge_inDV << std::endl;
-}
-
-
-// ============================================================================
-// EXPECTED RESULTS FOR EACH TEST LEVEL
-// ============================================================================
-//
-// Level 0 (no strain):     E ˜ 0.007, V = 273962 ? VERIFIED
-// Level 1 (2% iso):        E should increase slightly, V stable
-// Level 2 (5% iso):        E increases more, V stable
-// Level 3 (10% iso):       E increases significantly, V stable
-// Level 4 (15% iso):       Getting close to instability threshold
-// Level 5 (20% iso):       May need more substeps/smaller dt
-// Level 6 (50% paper):     Tests spatial variation
-// Level 7 (full paper):    Full strain - requires all stability fixes
-//
-// If a level fails (NaN, negative volume), go back one level and:
-// 1. Increase num_substeps (try 100, 200, 500)
-// 2. Decrease dt (try 1e-8, 1e-9)
-// 3. Check if anisotropic strain causes issues (test iso-only first)
-// ============================================================================
-
-//// ============================================================================
-//// getLambdaCoeffsForStage
-//// ============================================================================
-//void getLambdaCoeffsForStage(
-//    int stage,
-//    double& iso_center_outDV, double& iso_edge_outDV,
-//    double& aniso_center_outDV, double& aniso_edge_outDV,
-//    double& iso_center_inDV, double& iso_edge_inDV,
-//    double& aniso_center_inDV, double& aniso_edge_inDV)
-//{
-//    
-//    const bool DISABLE_STRAIN = false;  // <-- Change to false
-//    const bool USE_SMALL_TEST_STRAIN = true;  // <-- Add this
-//    
-//    if (USE_SMALL_TEST_STRAIN) {
-//        // Small uniform strain: 2% isotropic growth, no anisotropic
-//        iso_center_outDV = 1.02;
-//        iso_edge_outDV = 1.02;
-//        aniso_center_outDV = 1.0;
-//        aniso_edge_outDV = 1.0;
-//        
-//        iso_center_inDV = 1.02;
-//        iso_edge_inDV = 1.02;
-//        aniso_center_inDV = 1.0;
-//        aniso_edge_inDV = 1.0;
-//        
-//        std::cout << "Stage " << stage 
-//                  << " lambda coefficients: SMALL TEST STRAIN (2% iso)" 
-//                  << std::endl;
-//        return;
-//    }
-//    if (DISABLE_STRAIN) {
-//        iso_center_outDV = 1.0;
-//        iso_edge_outDV = 1.0;
-//        aniso_center_outDV = 1.0;
-//        aniso_edge_outDV = 1.0;
-//        iso_center_inDV = 1.0;
-//        iso_edge_inDV = 1.0;
-//        aniso_center_inDV = 1.0;
-//        aniso_edge_inDV = 1.0;
-//        
-//        std::cout << "Stage " << stage 
-//                  << " lambda coefficients: STRAIN DISABLED (all lambda = 1.0)" 
-//                  << std::endl;
-//        return;  // <-- Skip the rest of the function
-//    }
-//    
-//        
-//    // Stage 0: wL3 to 0hAPF
-//    const double s0_outDV_iso_slope = -0.12406004, s0_outDV_iso_intercept = 1.20789496;
-//    const double s0_outDV_aniso_slope = 0.06172103, s0_outDV_aniso_intercept = 1.01053997;
-//    const double s0_inDV_iso_slope = -0.09848994, s0_inDV_iso_intercept = 1.18401136;
-//    const double s0_inDV_aniso_slope = -0.12904887, s0_inDV_aniso_intercept = 1.03128453;
-//    
-//    // Stage 1: wL3 to 2hAPF  
-//    const double s1_outDV_iso_slope = -0.29431527, s1_outDV_iso_intercept = 1.4425603;
-//    const double s1_outDV_aniso_slope = 0.21823128, s1_outDV_aniso_intercept = 0.98874841;
-//    const double s1_inDV_iso_slope = -0.11692544, s1_inDV_iso_intercept = 1.2100754;
-//    const double s1_inDV_aniso_slope = -0.21271504, s1_inDV_aniso_intercept = 1.24178074;
-//    
-//    // Stage 2: wL3 to 4hAPF
-//    const double s2_outDV_iso_slope = -0.20050286, s2_outDV_iso_intercept = 1.43479468;
-//    const double s2_outDV_aniso_slope = 0.29444448, s2_outDV_aniso_intercept = 0.97652462;
-//    const double s2_inDV_iso_slope = -0.06151876, s2_inDV_iso_intercept = 1.47472744;
-//    const double s2_inDV_aniso_slope = -0.30567972, s2_inDV_aniso_intercept = 1.29370391;
-//    
-//    double slope_outDV_iso, intercept_outDV_iso;
-//    double slope_outDV_aniso, intercept_outDV_aniso;
-//    double slope_inDV_iso, intercept_inDV_iso;
-//    double slope_inDV_aniso, intercept_inDV_aniso;
-//    
-//    switch(stage) {
-//        case 0:
-//            slope_outDV_iso = s0_outDV_iso_slope; intercept_outDV_iso = s0_outDV_iso_intercept;
-//            slope_outDV_aniso = s0_outDV_aniso_slope; intercept_outDV_aniso = s0_outDV_aniso_intercept;
-//            slope_inDV_iso = s0_inDV_iso_slope; intercept_inDV_iso = s0_inDV_iso_intercept;
-//            slope_inDV_aniso = s0_inDV_aniso_slope; intercept_inDV_aniso = s0_inDV_aniso_intercept;
-//            break;
-//        case 1:
-//            slope_outDV_iso = s1_outDV_iso_slope; intercept_outDV_iso = s1_outDV_iso_intercept;
-//            slope_outDV_aniso = s1_outDV_aniso_slope; intercept_outDV_aniso = s1_outDV_aniso_intercept;
-//            slope_inDV_iso = s1_inDV_iso_slope; intercept_inDV_iso = s1_inDV_iso_intercept;
-//            slope_inDV_aniso = s1_inDV_aniso_slope; intercept_inDV_aniso = s1_inDV_aniso_intercept;
-//            break;
-//        case 2:
-//        default:
-//            slope_outDV_iso = s2_outDV_iso_slope; intercept_outDV_iso = s2_outDV_iso_intercept;
-//            slope_outDV_aniso = s2_outDV_aniso_slope; intercept_outDV_aniso = s2_outDV_aniso_intercept;
-//            slope_inDV_iso = s2_inDV_iso_slope; intercept_inDV_iso = s2_inDV_iso_intercept;
-//            slope_inDV_aniso = s2_inDV_aniso_slope; intercept_inDV_aniso = s2_inDV_aniso_intercept;
-//            break;
-//    }
-//    
-//    // Convert: center = intercept, edge = slope + intercept
-//    iso_center_outDV = intercept_outDV_iso;
-//    iso_edge_outDV = slope_outDV_iso + intercept_outDV_iso;
-//    aniso_center_outDV = intercept_outDV_aniso;
-//    aniso_edge_outDV = slope_outDV_aniso + intercept_outDV_aniso;
-//    
-//    iso_center_inDV = intercept_inDV_iso;
-//    iso_edge_inDV = slope_inDV_iso + intercept_inDV_iso;
-//    aniso_center_inDV = intercept_inDV_aniso;
-//    aniso_edge_inDV = slope_inDV_aniso + intercept_inDV_aniso;
-//    
-//    std::cout << "Stage " << stage << " lambda coefficients:" << std::endl;
-//    std::cout << "  outDV: iso_center=" << iso_center_outDV << ", iso_edge=" << iso_edge_outDV
-//              << ", aniso_center=" << aniso_center_outDV << ", aniso_edge=" << aniso_edge_outDV << std::endl;
-//    std::cout << "  inDV:  iso_center=" << iso_center_inDV << ", iso_edge=" << iso_edge_inDV
-//              << ", aniso_center=" << aniso_center_inDV << ", aniso_edge=" << aniso_edge_inDV << std::endl;
-//}
 
 } // namespace StrainTensorGPU
-
-//    
-//    switch (TEST_LEVEL) {
-//        case 0:
-//            // No strain - verified stable
-//            iso_center_outDV = 1.0;
-//            iso_edge_outDV = 1.0;
-//            aniso_center_outDV = 1.0;
-//            aniso_edge_outDV = 1.0;
-//            iso_center_inDV = 1.0;
-//            iso_edge_inDV = 1.0;
-//            aniso_center_inDV = 1.0;
-//            aniso_edge_inDV = 1.0;
-//            std::cout << "TEST_LEVEL 0: No strain (all lambda = 1.0)" << std::endl;
-//            break;
-//            
-//        case 1:
-//            // 2% uniform isotropic growth
-//            iso_center_outDV = 1.02;
-//            iso_edge_outDV = 1.02;
-//            aniso_center_outDV = 1.0;
-//            aniso_edge_outDV = 1.0;
-//            iso_center_inDV = 1.02;
-//            iso_edge_inDV = 1.02;
-//            aniso_center_inDV = 1.0;
-//            aniso_edge_inDV = 1.0;
-//            std::cout << "TEST_LEVEL 1: 2% uniform isotropic" << std::endl;
-//            break;
-//            
-//        case 2:
-//            // 5% uniform isotropic growth
-//            iso_center_outDV = 1.05;
-//            iso_edge_outDV = 1.05;
-//            aniso_center_outDV = 1.0;
-//            aniso_edge_outDV = 1.0;
-//            iso_center_inDV = 1.05;
-//            iso_edge_inDV = 1.05;
-//            aniso_center_inDV = 1.0;
-//            aniso_edge_inDV = 1.0;
-//            std::cout << "TEST_LEVEL 2: 5% uniform isotropic" << std::endl;
-//            break;
-//            
-//        case 3:
-//            // 10% uniform isotropic growth
-//            iso_center_outDV = 1.10;
-//            iso_edge_outDV = 1.10;
-//            aniso_center_outDV = 1.0;
-//            aniso_edge_outDV = 1.0;
-//            iso_center_inDV = 1.10;
-//            iso_edge_inDV = 1.10;
-//            aniso_center_inDV = 1.0;
-//            aniso_edge_inDV = 1.0;
-//            std::cout << "TEST_LEVEL 3: 10% uniform isotropic" << std::endl;
-//            break;
-//            
-//        case 4:
-//            // 15% uniform isotropic growth
-//            iso_center_outDV = 1.15;
-//            iso_edge_outDV = 1.15;
-//            aniso_center_outDV = 1.0;
-//            aniso_edge_outDV = 1.0;
-//            iso_center_inDV = 1.15;
-//            iso_edge_inDV = 1.15;
-//            aniso_center_inDV = 1.0;
-//            aniso_edge_inDV = 1.0;
-//            std::cout << "TEST_LEVEL 4: 15% uniform isotropic" << std::endl;
-//            break;
-//            
-//        case 5:
-//            // 20% uniform isotropic growth (similar magnitude to paper)
-//            iso_center_outDV = 1.20;
-//            iso_edge_outDV = 1.20;
-//            aniso_center_outDV = 1.0;
-//            aniso_edge_outDV = 1.0;
-//            iso_center_inDV = 1.20;
-//            iso_edge_inDV = 1.20;
-//            aniso_center_inDV = 1.0;
-//            aniso_edge_inDV = 1.0;
-//            std::cout << "TEST_LEVEL 5: 20% uniform isotropic" << std::endl;
-//            break;
-//            
-//        case 6:
-//            // Paper values at 50% magnitude
-//            // Original stage 0 values, but (lambda - 1) * 0.5 + 1
-//            iso_center_outDV = 1.0 + (1.20789 - 1.0) * 0.5;   // = 1.104
-//            iso_edge_outDV = 1.0 + (1.08383 - 1.0) * 0.5;     // = 1.042
-//            aniso_center_outDV = 1.0 + (1.01054 - 1.0) * 0.5; // = 1.005
-//            aniso_edge_outDV = 1.0 + (1.07226 - 1.0) * 0.5;   // = 1.036
-//            iso_center_inDV = 1.0 + (1.18401 - 1.0) * 0.5;    // = 1.092
-//            iso_edge_inDV = 1.0 + (1.08552 - 1.0) * 0.5;      // = 1.043
-//            aniso_center_inDV = 1.0 + (1.03128 - 1.0) * 0.5;  // = 1.016
-//            aniso_edge_inDV = 1.0 + (0.90224 - 1.0) * 0.5;    // = 0.951
-//            std::cout << "TEST_LEVEL 6: Paper values at 50% magnitude" << std::endl;
-//            break;
-//            
-//        case 7:
-//        default:
-//            // Full paper values (original hardcoded values for stage 0)
-//            iso_center_outDV = 1.20789;
-//            iso_edge_outDV = 1.08383;
-//            aniso_center_outDV = 1.01054;
-//            aniso_edge_outDV = 1.07226;
-//            iso_center_inDV = 1.18401;
-//            iso_edge_inDV = 1.08552;
-//            aniso_center_inDV = 1.03128;
-//            aniso_edge_inDV = 0.90224;
-//            std::cout << "TEST_LEVEL 7: Full paper values (stage 0)" << std::endl;
-//            break;
-// ============================================================================
-// EXPECTED RESULTS FOR EACH TEST LEVEL
-// ============================================================================
-//
-// Level 0 (no strain):     E ˜ 0.007, V = 273962 ? VERIFIED
-// Level 1 (2% iso):        E should increase slightly, V stable
-// Level 2 (5% iso):        E increases more, V stable
-// Level 3 (10% iso):       E increases significantly, V stable
-// Level 4 (15% iso):       Getting close to instability threshold
-// Level 5 (20% iso):       May need more substeps/smaller dt
-// Level 6 (50% paper):     Tests spatial variation
-// Level 7 (full paper):    Full strain - requires all stability fixes
-//
-// If a level fails (NaN, negative volume), go back one level and:
-// 1. Increase num_substeps (try 100, 200, 500)
-// 2. Decrease dt (try 1e-8, 1e-9)
-// 3. Check if anisotropic strain causes issues (test iso-only first)
-// ============================================================================
-
-
-
-
-
-

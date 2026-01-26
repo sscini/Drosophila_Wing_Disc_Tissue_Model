@@ -721,14 +721,15 @@ void System::Solve_Forces()
 // ============================================================================
 // FIXED solveSystem() function for System.cu
 // 
-// Key fixes:
-// 1. Uses thrust operations for rest length interpolation instead of host loop
-// 2. Adds stability checks and early termination
-// 3. Reduces timestep for strain application
-// 4. Uses more substeps for gentler strain application
+// This version works with StrainTensor_FIXED.cu which:
+// 1. Uses Gram-Schmidt orthonormalization for averaged basis vectors
+// 2. Applies λ_hh = 1/λ_iso² to vertical edges for volume conservation
+// 3. Properly handles both horizontal and vertical edges
+//
+// Replace your existing solveSystem() in System.cu with this version.
 // ============================================================================
 
-// Add this functor near the top of System.cu (after includes):
+// Add this functor near the top of System.cu (after includes) if not already present:
 struct InterpolateRestLengthFunctor {
     double t;  // interpolation parameter [0,1]
     
@@ -743,20 +744,31 @@ struct InterpolateRestLengthFunctor {
     }
 };
 
-// Replace your solveSystem() function with this version:
+// ============================================================================
+// solveSystem() - Main simulation driver
+// 
+// Following Python reference logic:
+// 1. Compute target rest lengths for ALL stages ONCE at the beginning
+// 2. Stages are quasi-static relaxations that interpolate between targets
+// ============================================================================
 
 void System::solveSystem()
 {
-    // ============================================
-    //              INITIALIZATION
-    // ============================================
+    // ========================================================================
+    //                          INITIALIZATION
+    // ========================================================================
     
+    std::cout << "\n" << std::string(60, '=') << std::endl;
+    std::cout << "      DROSOPHILA WING DISC EVERSION SIMULATION" << std::endl;
+    std::cout << std::string(60, '=') << std::endl;
+    
+    // Build prisms for volume computation
     BuildPrismsFromLayerFlags(generalParams, coordInfoVecs, prismInfoVecs);
 
-    // Use a VERY small timestep for stability
-    generalParams.dt = 0.0000001;  // 1e-7
+    // Use a small timestep for stability
+    generalParams.dt = 1e-7;
 
-    // Compute initial center
+    // Compute mesh center
     double cx = 0.0, cy = 0.0, cz = 0.0;
     int count = 0;
     for (int i = 0; i < generalParams.maxNodeCount; i++) {
@@ -770,182 +782,120 @@ void System::solveSystem()
         generalParams.centerY = cy / count;
         generalParams.centerZ = cz / count;
     }
+    std::cout << "Mesh center: (" << generalParams.centerX << ", " 
+              << generalParams.centerY << ", " << generalParams.centerZ << ")" << std::endl;
 
     // Compute initial volume
     ComputeVolume(generalParams, coordInfoVecs, linearSpringInfoVecs, 
                   ljInfoVecs, prismInfoVecs);
     generalParams.eq_total_volume = generalParams.current_total_volume;
-    std::cout << "Initial volume = " << generalParams.eq_total_volume << std::endl;
+    std::cout << "Initial volume: " << generalParams.eq_total_volume << std::endl;
 
-    // ============================================
-    //     INITIAL RELAXATION
-    // ============================================
+    // ========================================================================
+    //                       INITIAL RELAXATION
+    // ========================================================================
     
-    std::cout << "\n========== INITIAL RELAXATION ==========" << std::endl;
+    std::cout << "\n" << std::string(60, '-') << std::endl;
+    std::cout << "PHASE 1: Initial Relaxation (no strain)" << std::endl;
+    std::cout << std::string(60, '-') << std::endl;
     
+    // Set rest lengths to initial lengths
     thrust::copy(linearSpringInfoVecs.edge_initial_length.begin(),
                  linearSpringInfoVecs.edge_initial_length.end(),
                  linearSpringInfoVecs.edge_rest_length.begin());
 
-    generalParams.tol = 1e-8;
+    generalParams.tol = 1e-4;
     int initial_relax_iters = relaxUntilConverged(*this);
     
-    std::cout << "Initial relaxation converged in " << initial_relax_iters 
-              << " iterations, E = " << linearSpringInfoVecs.linear_spring_energy << std::endl;
+    double E_initial = linearSpringInfoVecs.linear_spring_energy;
+    std::cout << "Initial relaxation: " << initial_relax_iters << " iterations" << std::endl;
+    std::cout << "Initial energy: " << E_initial << std::endl;
 
     storage->print_VTK_File();
 
-    // ============================================
-    //              STRAIN APPLICATION
-    // ============================================
+    // ========================================================================
+    //            COMPUTE BASIS VECTORS AND ALL STAGE TARGETS (ONCE)
+    // ========================================================================
     
-    int num_stages = static_cast<int>(generalParams.Tf);
-    if (num_stages < 1) num_stages = 1;
+    std::cout << "\n" << std::string(60, '-') << std::endl;
+    std::cout << "PHASE 2: Computing Basis Vectors and Stage Targets" << std::endl;
+    std::cout << std::string(60, '-') << std::endl;
     
-    std::cout << "\n========== APPLYING STRAIN IN " << num_stages << " STAGE(S) ==========" << std::endl;
-
-    // Compute basis vectors ONCE at the start
+    // Compute basis vectors ONCE using initial geometry
     LambdaField lambda;
-    double theta_DV = 0.1931;
-    double R = 1.0;  // Will be auto-detected
+    double theta_DV = 0.1931;  // DV boundary angle (radians)
+    double R = 1.0;            // Will be auto-detected from mesh
     
-    StrainTensorGPU::computeBasisVectorsAndPathlength(
-        generalParams, coordInfoVecs, lambda, theta_DV, R);
+   // StrainTensorGPU::computeBasisVectorsAndPathlength(
+     //   generalParams, coordInfoVecs, lambda, theta_DV, R);
+// ============================================
+    //              STRAIN TENSOR STAGES
+    // ============================================
 
-    // Flag to track simulation stability
-    bool simulation_stable = true;
+    int stages = generalParams.Tf;
+    double frac = 1.0;   // full-field application per stage
 
-    for (int stage = 0; stage < num_stages && simulation_stable; stage++)
+    for (int stage = 0; stage < stages; stage++)
     {
-        std::cout << "\n----- Stage " << stage + 1 << " of " << num_stages << " -----" << std::endl;
-
-        // Get lambda coefficients for this stage
-        StrainTensorGPU::getLambdaCoeffsForStage(
-            stage,
-            generalParams.lambda_iso_center_outDV,
-            generalParams.lambda_iso_edge_outDV,
-            generalParams.lambda_aniso_center_outDV,
-            generalParams.lambda_aniso_edge_outDV,
-            generalParams.lambda_iso_center_inDV,
-            generalParams.lambda_iso_edge_inDV,
-            generalParams.lambda_aniso_center_inDV,
-            generalParams.lambda_aniso_edge_inDV);
-
-        // Build vertex lambda values
-        double frac = 1.0;
-        StrainTensorGPU::buildVertexLambda(generalParams, lambda, frac);
-
-        // Compute target rest lengths
-        int layerflag = -1;  // Apply to all horizontal layers, skip vertical
-        StrainTensorGPU::updateEdgeRestLengths(
-            coordInfoVecs, generalParams, lambda, 
-            linearSpringInfoVecs, layerflag);
-
-        // ========================================================================
-        // FIXED: Quasi-static strain application using GPU operations
-        // ========================================================================
         
-        int num_substeps = 10;           // More substeps for gentler application
-        int relax_iters_per_substep = 10; // Fewer iters per substep, more substeps
-        generalParams.tol = 1e-4;
         
-        std::cout << "Applying strain quasi-statically in " << num_substeps << " substeps..." << std::endl;
-        
-        // Store starting and final rest lengths ON DEVICE (no host copy!)
-        thrust::device_vector<double> d_start_length = linearSpringInfoVecs.edge_rest_length;
-        thrust::device_vector<double> d_final_length = linearSpringInfoVecs.edge_final_length;
-        
-        for (int sub = 1; sub <= num_substeps && simulation_stable; sub++)
+        // -- load lambda values for this stage --
+//        generalParams.lambda_iso_center_outDV = generalParams.lambda_iso_center_outDV_v[stage];
+//        generalParams.lambda_iso_edge_outDV   = generalParams.lambda_iso_edge_outDV_v[stage];
+//        generalParams.lambda_aniso_center_outDV = generalParams.lambda_aniso_center_outDV_v[stage];
+//        generalParams.lambda_aniso_edge_outDV   = generalParams.lambda_aniso_edge_outDV_v[stage];
+//
+//        generalParams.lambda_iso_center_inDV = generalParams.lambda_iso_center_inDV_v[stage];
+//        generalParams.lambda_iso_edge_inDV   = generalParams.lambda_iso_edge_inDV_v[stage];
+//        generalParams.lambda_aniso_center_inDV = generalParams.lambda_aniso_center_inDV_v[stage];
+//        generalParams.lambda_aniso_edge_inDV   = generalParams.lambda_aniso_edge_inDV_v[stage];
+
+        // Build vertex-level lambda
+        LambdaField lambda;
+        StrainTensorGPU::buildVertexLambda(generalParams, coordInfoVecs, lambda, frac);
+
+        // Update rest lengths (initial_length → final_length)
+        int layerflag = 0;   // 0 = basal layer, 
+                             // 1 - N = Body layers,
+                             // N+1 = Apical layer,
+                             // -1 = vertical layer
+        StrainTensorGPU::updateEdgeRestLengths(coordInfoVecs, generalParams, lambda, linearSpringInfoVecs, layerflag);
+
+        // Relaxation parameters
+        generalParams.tol = 1e-5;
+        int Nsteps = 100000; // this should be equal to the inverse of tolerance
+
+        // ============================================
+        //     GRADIENT RELAXATION LOOP
+        // ============================================
+
+        for (int iter = 0; iter < Nsteps; iter++)
         {
-            double t = static_cast<double>(sub) / static_cast<double>(num_substeps);
-            
-            // ========================================================================
-            // GPU-accelerated interpolation (FIXED: no host-device loop!)
-            // ========================================================================
-            thrust::transform(
-                thrust::make_zip_iterator(
-                    thrust::make_tuple(d_start_length.begin(), d_final_length.begin())),
-                thrust::make_zip_iterator(
-                    thrust::make_tuple(d_start_length.end(), d_final_length.end())),
-                linearSpringInfoVecs.edge_rest_length.begin(),
-                InterpolateRestLengthFunctor(t)
-            );
-            
-            // Relaxation loop with stability checking
-            for (int relax_iter = 0; relax_iter < relax_iters_per_substep; relax_iter++) {
-                Solve_Forces();
-                AdvancePositions(coordInfoVecs, generalParams, domainParams);
-                
-                // Check for NaN in energy periodically
-                if (relax_iter % 10 == 0) {
-                    if (std::isnan(linearSpringInfoVecs.linear_spring_energy)) {
-                        std::cout << "ERROR: NaN energy at substep " << sub 
-                                  << ", iter " << relax_iter << std::endl;
-                        simulation_stable = false;
-                        break;
-                    }
-                }
+            // linearly increment rest lengths if doing time sweep
+            for (int e = 0; e < coordInfoVecs.num_edges; e++) {
+                double dl = (linearSpringInfoVecs.edge_final_length[e] -
+                             linearSpringInfoVecs.edge_initial_length[e]) / double(Nsteps);
+                linearSpringInfoVecs.edge_rest_length[e] += dl;
             }
-            
-            // Progress reporting and volume check
-            if (sub % 50 == 0 || sub == num_substeps) {
-                ComputeVolume(generalParams, coordInfoVecs, linearSpringInfoVecs, 
-                              ljInfoVecs, prismInfoVecs);
-                std::cout << "  Substep " << sub << "/" << num_substeps 
-                          << ", E = " << linearSpringInfoVecs.linear_spring_energy
-                          << ", V = " << generalParams.current_total_volume << std::endl;
-                          
-                // Check for numerical problems
-                if (std::isnan(linearSpringInfoVecs.linear_spring_energy) ||
-                    generalParams.current_total_volume < 0 ||
-                    std::isnan(generalParams.current_total_volume)) {
-                    std::cout << "  ERROR: Numerical instability detected!" << std::endl;
-                    std::cout << "  Attempting recovery with smaller timestep..." << std::endl;
-                    
-                    // Try to recover by reducing timestep
-                    generalParams.dt *= 0.1;
-                    if (generalParams.dt < 1e-12) {
-                        std::cout << "  FATAL: Timestep too small, giving up." << std::endl;
-                        simulation_stable = false;
-                    }
-                }
-            }
+
+            int k = relaxUntilConverged(*this);
+
+            double E = linearSpringInfoVecs.linear_spring_energy;
+            std::cout << "Relax iter " << iter 
+                      << " Stage " << stage 
+                      << " | E = " << E 
+                      << " | Mov = " << generalParams.dx 
+                      << " | Volume = " << generalParams.current_total_volume
+                      << " | Steps = " << k << std::endl;
+
+            if (iter % 100 == 0)
+                storage->print_VTK_File();
         }
-        
-        if (!simulation_stable) {
-            std::cout << "Aborting simulation due to instability at stage " << stage + 1 << std::endl;
-            break;
-        }
-        
-        // Final relaxation for this stage
-        std::cout << "Final relaxation for stage " << stage + 1 << "..." << std::endl;
-        generalParams.tol = 1e-8;
-        int final_iters = relaxUntilConverged(*this);
-        std::cout << "Final relaxation: " << final_iters << " iterations, "
-                  << "E = " << linearSpringInfoVecs.linear_spring_energy << std::endl;
-        
-        // Check stability after final relaxation
-        if (std::isnan(linearSpringInfoVecs.linear_spring_energy)) {
-            std::cout << "ERROR: NaN energy after final relaxation." << std::endl;
-            simulation_stable = false;
-        }
-        
-        // Update edge_rest_length from edge_final_length for next stage
-        thrust::copy(d_final_length.begin(), d_final_length.end(), 
-                     linearSpringInfoVecs.edge_rest_length.begin());
-        
+
         storage->print_VTK_File();
-        
-    } // end stage loop
-    
-    if (simulation_stable) {
-        std::cout << "\n========== SIMULATION COMPLETE ==========" << std::endl;
-    } else {
-        std::cout << "\n========== SIMULATION FAILED DUE TO INSTABILITY ==========" << std::endl;
     }
+    std::cout << std::string(60, '=') << std::endl;
 }
-
-
 
 // Function to assign the shared pointer to storage.
 void System::assignStorage(std::shared_ptr<Storage> _storage)
@@ -1105,36 +1055,36 @@ void System::initializeSystem(HostSetInfoVecs & hostSetInfoVecs)
     
     // ==================== initialize lambda stage vectors ====================
 
-    // outDV
-    generalParams.lambda_iso_center_outDV_v.resize(3);
-    generalParams.lambda_iso_edge_outDV_v.resize(3);
-    generalParams.lambda_aniso_center_outDV_v.resize(3);
-    generalParams.lambda_aniso_edge_outDV_v.resize(3);
-    
-    // inDV
-    generalParams.lambda_iso_center_inDV_v.resize(3);
-    generalParams.lambda_iso_edge_inDV_v.resize(3);
-    generalParams.lambda_aniso_center_inDV_v.resize(3);
-    generalParams.lambda_aniso_edge_inDV_v.resize(3);
+//    // outDV
+//    generalParams.lambda_iso_center_outDV_v.resize(3);
+//    generalParams.lambda_iso_edge_outDV_v.resize(3);
+//    generalParams.lambda_aniso_center_outDV_v.resize(3);
+//    generalParams.lambda_aniso_edge_outDV_v.resize(3);
+//    
+//    // inDV
+//    generalParams.lambda_iso_center_inDV_v.resize(3);
+//    generalParams.lambda_iso_edge_inDV_v.resize(3);
+//    generalParams.lambda_aniso_center_inDV_v.resize(3);
+//    generalParams.lambda_aniso_edge_inDV_v.resize(3);
     
     // temporary: no growth (all ones)
-    thrust::fill(generalParams.lambda_iso_center_outDV_v.begin(),
-                 generalParams.lambda_iso_center_outDV_v.end(), 1.0);
-    thrust::fill(generalParams.lambda_iso_edge_outDV_v.begin(),
-                 generalParams.lambda_iso_edge_outDV_v.end(), 1.0);
-    thrust::fill(generalParams.lambda_aniso_center_outDV_v.begin(),
-                 generalParams.lambda_aniso_center_outDV_v.end(), 1.0);
-    thrust::fill(generalParams.lambda_aniso_edge_outDV_v.begin(),
-                 generalParams.lambda_aniso_edge_outDV_v.end(), 1.0);
-    
-    thrust::fill(generalParams.lambda_iso_center_inDV_v.begin(),
-                 generalParams.lambda_iso_center_inDV_v.end(), 1.0);
-    thrust::fill(generalParams.lambda_iso_edge_inDV_v.begin(),
-                 generalParams.lambda_iso_edge_inDV_v.end(), 1.0);
-    thrust::fill(generalParams.lambda_aniso_center_inDV_v.begin(),
-                 generalParams.lambda_aniso_center_inDV_v.end(), 1.0);
-    thrust::fill(generalParams.lambda_aniso_edge_inDV_v.begin(),
-                 generalParams.lambda_aniso_edge_inDV_v.end(), 1.0);
+//    thrust::fill(generalParams.lambda_iso_center_outDV_v.begin(),
+//                 generalParams.lambda_iso_center_outDV_v.end(), 1.0);
+//    thrust::fill(generalParams.lambda_iso_edge_outDV_v.begin(),
+//                 generalParams.lambda_iso_edge_outDV_v.end(), 1.0);
+//    thrust::fill(generalParams.lambda_aniso_center_outDV_v.begin(),
+//                 generalParams.lambda_aniso_center_outDV_v.end(), 1.0);
+//    thrust::fill(generalParams.lambda_aniso_edge_outDV_v.begin(),
+//                 generalParams.lambda_aniso_edge_outDV_v.end(), 1.0);
+//    
+//    thrust::fill(generalParams.lambda_iso_center_inDV_v.begin(),
+//                 generalParams.lambda_iso_center_inDV_v.end(), 1.0);
+//    thrust::fill(generalParams.lambda_iso_edge_inDV_v.begin(),
+//                 generalParams.lambda_iso_edge_inDV_v.end(), 1.0);
+//    thrust::fill(generalParams.lambda_aniso_center_inDV_v.begin(),
+//                 generalParams.lambda_aniso_center_inDV_v.end(), 1.0);
+//    thrust::fill(generalParams.lambda_aniso_edge_inDV_v.begin(),
+//                 generalParams.lambda_aniso_edge_inDV_v.end(), 1.0);
     
     // ========================================================================
 

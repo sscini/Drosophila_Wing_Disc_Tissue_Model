@@ -54,7 +54,13 @@ struct LambdaField {
 /*  Public GPU interface (wrappers are defined in StrainTensor.cu)                                  */
 /* ================================================================================================ */
 namespace StrainTensorGPU {
-
+    
+    
+    void computeBasisVectorsWithDVSeparation(
+        GeneralParams& params,
+        CoordInfoVecs& coords,
+        double theta_DV = 0.1931,  // ~11 degrees
+        double R = 1.0);
     /**
      * Build local bases and ? field at all vertices.
      * Internally also marks the DV stripe (all layers participate in DV).

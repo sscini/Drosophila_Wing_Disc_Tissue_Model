@@ -764,6 +764,81 @@ void System::solveSystem()
     
     // Build prisms for volume computation
     BuildPrismsFromLayerFlags(generalParams, coordInfoVecs, prismInfoVecs);
+    
+    // Setting boundary nodes
+    
+     generalParams.boundaries_in_upperhem.resize(coordInfoVecs.num_edges);
+
+    std::cout << "boundaries in upperhem = " << generalParams.boundaries_in_upperhem.size() << std::endl;
+
+    std::vector<int> boundary_edge_list;
+    std::vector<int> boundary_node_list;
+
+    std::cout << "edges2Triangles_1 = " << coordInfoVecs.edges2Triangles_1.size() << std::endl;
+    std::cout << "edges2Triangles_2 = " << coordInfoVecs.edges2Triangles_2.size() << std::endl;
+
+   
+    for (int i = 0; i < coordInfoVecs.num_edges; i++)
+    {
+        int T1 = static_cast<int>(coordInfoVecs.edges2Triangles_1[i]);
+        int T2 = static_cast<int>(coordInfoVecs.edges2Triangles_2[i]);
+
+        // std::cout<<"it got till here - nav "<< std::endl;// it got till here.
+
+        // Optionally check if the triangle indices are valid.
+        if (T1 < 0 || T2 < 0 || T1 >= (INT_MAX - 1000) || T2 >= (INT_MAX - 1000))
+        {
+            continue;
+        }
+
+        // std::cout<<"it got till here - nav 1 "<< std::endl; // it got till here.
+
+        // Mark edge as boundary if the two adjacent triangle IDs are identical.
+        // std::cout<<"T1 = "<<T1<<std::endl;
+        // std::cout<<"T2 = "<<T2<<std::endl;
+        // std::cout<<"generalParams.edges_in_upperhem["<<i<<"] = "<< generalParams.edges_in_upperhem[i]<<std::endl;
+
+        if (T1 == T2)
+        {
+            generalParams.boundaries_in_lowerhem[i] = 1;
+            boundary_edge_list.push_back(i); // This is to store the total number of boundary edges.
+            int bdry_node1 = static_cast<int>(coordInfoVecs.edges2Nodes_1[i]);
+            int bdry_node2 = static_cast<int>(coordInfoVecs.edges2Nodes_2[i]);
+            boundary_node_list.push_back(bdry_node1);
+            boundary_node_list.push_back(bdry_node2);
+
+//            // mark these nodes as boundary or (fixed).
+//            generalParams.nodes_in_upperhem[bdry_node1] = 10;
+//            generalParams.nodes_in_upperhem[bdry_node2] = 10;
+            coordInfoVecs.isNodeFixed[bdry_node1] = false;
+            coordInfoVecs.isNodeFixed[bdry_node2] = false;
+            
+        }
+//        // This is for apical boundary nodes.
+//        if (T1 == T2 && generalParams.edges_in_upperhem[i] == 0)
+//        { // nav added the second conditional && generalParams.nodes_in_upperhem[i]==1 so that the new apical model would work.
+//            generalParams.boundaries_in_upperhem[i] = 1;
+//            boundary_edge_list.push_back(i);
+//
+//            // std::cout<<"it got till here - nav 3 "<< std::endl;
+//            int bdry_node1 = static_cast<int>(coordInfoVecs.edges2Nodes_1[i]);
+//            int bdry_node2 = static_cast<int>(coordInfoVecs.edges2Nodes_2[i]);
+//            boundary_node_list.push_back(bdry_node1);
+//            boundary_node_list.push_back(bdry_node2);
+//
+//            // Optionally mark these nodes as boundary (or fixed).
+//            generalParams.nodes_in_upperhem[bdry_node1] = 1; // nav changed this from 0 to 10.
+//            generalParams.nodes_in_upperhem[bdry_node2] = 1; // nav changed this from 0 to 10.
+//            coordInfoVecs.isNodeFixed[bdry_node1] = false;
+//            coordInfoVecs.isNodeFixed[bdry_node2] = false;
+//
+//            // std::cout<<"it got till here - nav 4 "<< std::endl;
+//        }
+        else
+        {
+            generalParams.boundaries_in_upperhem[i] = -1;
+        }
+    }
 
     // Use a small timestep for stability
     generalParams.dt = 1e-7;
@@ -813,18 +888,48 @@ void System::solveSystem()
 
     storage->print_VTK_File();
 
+
     // ========================================================================
-    //            COMPUTE BASIS VECTORS AND ALL STAGE TARGETS (ONCE)
+    //            COMPUTE BASIS VECTORS WITH DV SEPARATION
     // ========================================================================
     
     std::cout << "\n" << std::string(60, '-') << std::endl;
-    std::cout << "PHASE 2: Computing Basis Vectors and Stage Targets" << std::endl;
+    std::cout << "PHASE 2: Computing Basis Vectors with DV Separation" << std::endl;
     std::cout << std::string(60, '-') << std::endl;
     
+    // DV boundary parameters
+    double theta_DV = 0.1931;  // DV boundary angle (radians) - ~11 degrees
+    
+    // Auto-detect mesh radius from coordinates
+    double R = 0.0;
+    for (int i = 0; i < generalParams.maxNodeCount; i++) {
+        double x = coordInfoVecs.nodeLocX[i];
+        double y = coordInfoVecs.nodeLocY[i];
+        double z = coordInfoVecs.nodeLocZ[i];
+        double r = sqrt(x*x + y*y + z*z);
+        R = std::max(R, r);
+    }
+    if (R < 1e-10) R = 1.0;
+    std::cout << "Detected mesh radius R = " << R << std::endl;
+    
+    // Compute basis vectors with DV separation
+    // This will:
+    // 1. Classify nodes into DV, dorsal, and ventral regions
+    // 2. Compute region-specific origins (OV-OD line, OD, OV)
+    // 3. Compute radial basis vectors from each origin
+    // 4. Set up pathlengths for lambda interpolation
+    StrainTensorGPU::computeBasisVectorsWithDVSeparation(
+        generalParams, coordInfoVecs, theta_DV, R);
+    
+//    // Copy DV classification to GeneralParams for use in buildVertexLambda
+//    generalParams.nodes_in_DV.resize(hostSetInfoVecs.nodes_in_DV.size());
+//    thrust::copy(hostSetInfoVecs.nodes_in_DV.begin(), 
+//                 hostSetInfoVecs.nodes_in_DV.end(),
+//                 generalParams.nodes_in_DV.begin());
     // Compute basis vectors ONCE using initial geometry
     LambdaField lambda;
-    double theta_DV = 0.1931;  // DV boundary angle (radians)
-    double R = 1.0;            // Will be auto-detected from mesh
+   // double theta_DV = 0.1931;  // DV boundary angle (radians)
+    //double R = 1.0;            // Will be auto-detected from mesh
     
    // StrainTensorGPU::computeBasisVectorsAndPathlength(
      //   generalParams, coordInfoVecs, lambda, theta_DV, R);
@@ -880,7 +985,7 @@ void System::solveSystem()
 
             int k = relaxUntilConverged(*this);
 
-            double E = linearSpringInfoVecs.linear_spring_energy;
+            double E = linearSpringInfoVecs.linear_spring_energy+generalParams.volume_energy;
             std::cout << "Relax iter " << iter 
                       << " Stage " << stage 
                       << " | E = " << E 
@@ -888,9 +993,14 @@ void System::solveSystem()
                       << " | Volume = " << generalParams.current_total_volume
                       << " | Steps = " << k << std::endl;
 
-            if (iter % 100 == 0)
+            if (iter % 1000 == 0)
                 storage->print_VTK_File();
         }
+//        std::cout //"Relax iter " << iter 
+//                      << " Stage " << stage 
+//                      //<< " | E = " << E 
+//                      << " | Mov = " << generalParams.dx 
+//                      << " | Volume = " << generalParams.current_total_volume << std::endl;
 
         storage->print_VTK_File();
     }

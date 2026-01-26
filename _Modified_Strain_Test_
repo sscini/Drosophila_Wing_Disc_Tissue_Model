@@ -1,0 +1,416 @@
+3
+argc: 1
+arg: -dt=0.01
+pos: 3
+key: -dt
+val: 0.01
+setting timestep: 0.01
+data struct file name = Data_Structures/Data_Structure.xml
+[Layers] A=301 B=903 C=301 -> N_body=3 total layers=5
+Setting tau: 1
+Setting kbt: 1
+Setting linear const: 5
+Setting dt: 0.01
+Setting Tf:5
+Setting lambda_iso_in_DV_center:0.5
+Setting lambda_aniso_in_DV_center:0.5
+Setting lambda_iso_in_DV_edge:0.5
+Setting lambda_aniso_in_DV_edge:0.5
+Setting lambda_iso_out_DV_center:0.5
+Setting lambda_aniso_out_DV_center:0.5
+Setting lambda_iso_out_DV_edge:0.5
+Setting tol:1e-09
+Setting Rmin:1.5
+Apical nodes parsed successfully.
+Body nodes parsed successfully.
+Basal nodes parsed successfully.
+Apical Edges parsed successfully.
+Body Edges parsed successfully.
+Basal Edges parsed successfully.
+Vertical Edges parsed successfully.
+Elements parsed successfully.
+Element-to-edge mappings parsed successfully.
+Edge-to-element mappings parsed successfully.
+Initializing
+num nodes: 1505
+num edges: 15552
+num elems: 9472
+Invalid edges found and fixed: 0
+Copying
+fixed_node_in_host: 
+end_of_fixed_node_host_printout
+fixed_node_in_device: 
+end_of_fixed_node_device_printout
+size of host fixed 1505
+size of device fixed 1505
+Mem
+host edge_initial_length size = 15552
+device edge_initial_length size = 15552
+host edge_rest_length size = 15552
+device edge_rest_length size = 15552
+Host_nodeLocX size = 1505
+Host_nodeForceX size = 1505
+Host_triangles2Nodes size = 9472
+Host_triangles2Edges size = 9472
+Host_edges2Nodes size = 15552
+Host_edges2Triangles size = 15552
+System Ready
+solving system in main
+
+============================================================
+      DROSOPHILA WING DISC EVERSION SIMULATION
+============================================================
+BuildPrisms: Layer flags range from 0 to 4
+BuildPrisms: Apical layer = 4, Basal layer = 0
+BuildPrisms: Layer sizes:
+  Layer 0: 301 nodes
+  Layer 1: 301 nodes
+  Layer 2: 301 nodes
+  Layer 3: 301 nodes
+  Layer 4: 301 nodes
+BuildPrisms: Created 1204 node mappings using index-based correspondence
+BuildPrisms: Sample mappings (upper -> lower):
+  Node 0 (layer 4) -> Node 903 (layer 3)
+  Node 1 (layer 4) -> Node 904 (layer 3)
+  Node 2 (layer 4) -> Node 905 (layer 3)
+  Node 3 (layer 4) -> Node 906 (layer 3)
+  Node 4 (layer 4) -> Node 907 (layer 3)
+  Node 5 (layer 4) -> Node 908 (layer 3)
+  Node 6 (layer 4) -> Node 909 (layer 3)
+  Node 7 (layer 4) -> Node 910 (layer 3)
+  Node 8 (layer 4) -> Node 911 (layer 3)
+  Node 9 (layer 4) -> Node 912 (layer 3)
+BuildPrisms: Created 2176 prisms
+  - Flipped for consistent orientation: 1088
+  - Skipped (no mapping): 0
+  - Skipped (degenerate): 0
+  - Skipped (wrong layer): 6752
+  SUCCESS: All prisms have positive volume
+  Total prism volume: 137062
+boundaries in upperhem = 15552
+edges2Triangles_1 = 15552
+edges2Triangles_2 = 15552
+Mesh center: (-1.13309e-16, 1.1803e-17, 50.8521)
+Initial volume: 137062
+
+------------------------------------------------------------
+PHASE 1: Initial Relaxation (no strain)
+------------------------------------------------------------
+Initial relaxation: 1 iterations
+Initial energy: 6.89267e-27
+Storage: Wrote Animation_realistic/01_25_26/_Modified_Strain_Test_00000.vtk with 15552 edges
+
+------------------------------------------------------------
+PHASE 2: Computing Basis Vectors with DV Separation
+------------------------------------------------------------
+Detected mesh radius R = 77.6601
+
+============================================================
+DV BOUNDARY SEPARATION - Region Origins
+============================================================
+DV half-width: 14.9031
+Mesh center: (-1.13309e-16, 1.1803e-17, 50.8521)
+OD (Dorsal origin): (1.16254e-15, -25.2791, 52.3797)
+OV (Ventral origin): (1.16254e-15, 25.2791, 52.3797)
+Max radial distances:
+  Dorsal: 46.0266
+  Ventral: 46.0266
+  DV (rho): 14.8936
+============================================================
+
+Node Region Distribution:
+  Dorsal nodes: 382
+  DV boundary nodes: 741
+  Ventral nodes: 382
+  Total: 1505
+Basis vectors computed and copied to device. N = 1505
+Relax iter 0 Stage 0 | E = 2.1185e-05 | Mov = 1.24713e-11 | Volume = 137062 | Steps = 1
+Storage: Wrote Animation_realistic/01_25_26/_Modified_Strain_Test_00001.vtk with 15552 edges
+Relax iter 1 Stage 0 | E = 8.47398e-05 | Mov = 2.47821e-11 | Volume = 137062 | Steps = 1
+Relax iter 2 Stage 0 | E = 0.000190665 | Mov = 3.6985e-11 | Volume = 137062 | Steps = 1
+Relax iter 3 Stage 0 | E = 0.000338959 | Mov = 4.91211e-11 | Volume = 137062 | Steps = 1
+Relax iter 4 Stage 0 | E = 0.000529624 | Mov = 6.12192e-11 | Volume = 137062 | Steps = 1
+Relax iter 5 Stage 0 | E = 0.000762658 | Mov = 7.33016e-11 | Volume = 137062 | Steps = 1
+Relax iter 6 Stage 0 | E = 0.00103806 | Mov = 8.53821e-11 | Volume = 137062 | Steps = 1
+Relax iter 7 Stage 0 | E = 0.00135584 | Mov = 9.7472e-11 | Volume = 137062 | Steps = 1
+Relax iter 8 Stage 0 | E = 0.00171598 | Mov = 1.09578e-10 | Volume = 137062 | Steps = 1
+Relax iter 9 Stage 0 | E = 0.00211849 | Mov = 1.21704e-10 | Volume = 137062 | Steps = 1
+Relax iter 10 Stage 0 | E = 0.00256338 | Mov = 1.33855e-10 | Volume = 137062 | Steps = 1
+Relax iter 11 Stage 0 | E = 0.00305063 | Mov = 1.4603e-10 | Volume = 137062 | Steps = 1
+Relax iter 12 Stage 0 | E = 0.00358025 | Mov = 1.58231e-10 | Volume = 137062 | Steps = 1
+Relax iter 13 Stage 0 | E = 0.00415224 | Mov = 1.70457e-10 | Volume = 137062 | Steps = 1
+Relax iter 14 Stage 0 | E = 0.00476661 | Mov = 1.82709e-10 | Volume = 137062 | Steps = 1
+Relax iter 15 Stage 0 | E = 0.00542334 | Mov = 1.94986e-10 | Volume = 137062 | Steps = 1
+Relax iter 16 Stage 0 | E = 0.00612244 | Mov = 2.07286e-10 | Volume = 137062 | Steps = 1
+Relax iter 17 Stage 0 | E = 0.00686391 | Mov = 2.19608e-10 | Volume = 137062 | Steps = 1
+Relax iter 18 Stage 0 | E = 0.00764775 | Mov = 2.31952e-10 | Volume = 137062 | Steps = 1
+Relax iter 19 Stage 0 | E = 0.00847396 | Mov = 2.44318e-10 | Volume = 137062 | Steps = 1
+Relax iter 20 Stage 0 | E = 0.00934254 | Mov = 2.56705e-10 | Volume = 137062 | Steps = 1
+Relax iter 21 Stage 0 | E = 0.0102535 | Mov = 2.6911e-10 | Volume = 137062 | Steps = 1
+Relax iter 22 Stage 0 | E = 0.0112068 | Mov = 2.81532e-10 | Volume = 137062 | Steps = 1
+Relax iter 23 Stage 0 | E = 0.0122025 | Mov = 2.93968e-10 | Volume = 137062 | Steps = 1
+Relax iter 24 Stage 0 | E = 0.0132406 | Mov = 3.06421e-10 | Volume = 137062 | Steps = 1
+Relax iter 25 Stage 0 | E = 0.014321 | Mov = 3.18887e-10 | Volume = 137062 | Steps = 1
+Relax iter 26 Stage 0 | E = 0.0154438 | Mov = 3.31364e-10 | Volume = 137062 | Steps = 1
+Relax iter 27 Stage 0 | E = 0.016609 | Mov = 3.43853e-10 | Volume = 137062 | Steps = 1
+Relax iter 28 Stage 0 | E = 0.0178165 | Mov = 3.56351e-10 | Volume = 137062 | Steps = 1
+Relax iter 29 Stage 0 | E = 0.0190664 | Mov = 3.68858e-10 | Volume = 137062 | Steps = 1
+Relax iter 30 Stage 0 | E = 0.0203587 | Mov = 3.81374e-10 | Volume = 137062 | Steps = 1
+Relax iter 31 Stage 0 | E = 0.0216933 | Mov = 3.93896e-10 | Volume = 137062 | Steps = 1
+Relax iter 32 Stage 0 | E = 0.0230703 | Mov = 4.06426e-10 | Volume = 137062 | Steps = 1
+Relax iter 33 Stage 0 | E = 0.0244897 | Mov = 4.18962e-10 | Volume = 137062 | Steps = 1
+Relax iter 34 Stage 0 | E = 0.0259515 | Mov = 4.31503e-10 | Volume = 137062 | Steps = 1
+Relax iter 35 Stage 0 | E = 0.0274556 | Mov = 4.4405e-10 | Volume = 137062 | Steps = 1
+Relax iter 36 Stage 0 | E = 0.0290021 | Mov = 4.56602e-10 | Volume = 137062 | Steps = 1
+Relax iter 37 Stage 0 | E = 0.030591 | Mov = 4.69158e-10 | Volume = 137062 | Steps = 1
+Relax iter 38 Stage 0 | E = 0.0322222 | Mov = 4.81718e-10 | Volume = 137062 | Steps = 1
+Relax iter 39 Stage 0 | E = 0.0338958 | Mov = 4.94282e-10 | Volume = 137062 | Steps = 1
+Relax iter 40 Stage 0 | E = 0.0356118 | Mov = 5.06849e-10 | Volume = 137062 | Steps = 1
+Relax iter 41 Stage 0 | E = 0.0373701 | Mov = 5.19419e-10 | Volume = 137062 | Steps = 1
+Relax iter 42 Stage 0 | E = 0.0391708 | Mov = 5.31992e-10 | Volume = 137062 | Steps = 1
+Relax iter 43 Stage 0 | E = 0.0410139 | Mov = 5.44568e-10 | Volume = 137062 | Steps = 1
+Relax iter 44 Stage 0 | E = 0.0428993 | Mov = 5.57146e-10 | Volume = 137062 | Steps = 1
+Relax iter 45 Stage 0 | E = 0.0448272 | Mov = 5.69726e-10 | Volume = 137062 | Steps = 1
+Relax iter 46 Stage 0 | E = 0.0467973 | Mov = 5.82309e-10 | Volume = 137062 | Steps = 1
+Relax iter 47 Stage 0 | E = 0.0488099 | Mov = 5.94894e-10 | Volume = 137062 | Steps = 1
+Relax iter 48 Stage 0 | E = 0.0508648 | Mov = 6.07479e-10 | Volume = 137062 | Steps = 1
+Relax iter 49 Stage 0 | E = 0.0529621 | Mov = 6.20068e-10 | Volume = 137062 | Steps = 1
+Relax iter 50 Stage 0 | E = 0.0551018 | Mov = 6.32657e-10 | Volume = 137062 | Steps = 1
+Relax iter 51 Stage 0 | E = 0.0572838 | Mov = 6.45248e-10 | Volume = 137062 | Steps = 1
+Relax iter 52 Stage 0 | E = 0.0595082 | Mov = 6.5784e-10 | Volume = 137062 | Steps = 1
+Relax iter 53 Stage 0 | E = 0.061775 | Mov = 6.70434e-10 | Volume = 137062 | Steps = 1
+Relax iter 54 Stage 0 | E = 0.0640841 | Mov = 6.83029e-10 | Volume = 137062 | Steps = 1
+Relax iter 55 Stage 0 | E = 0.0664356 | Mov = 6.95625e-10 | Volume = 137062 | Steps = 1
+Relax iter 56 Stage 0 | E = 0.0688295 | Mov = 7.08221e-10 | Volume = 137062 | Steps = 1
+Relax iter 57 Stage 0 | E = 0.0712658 | Mov = 7.20819e-10 | Volume = 137062 | Steps = 1
+Relax iter 58 Stage 0 | E = 0.0737444 | Mov = 7.33417e-10 | Volume = 137062 | Steps = 1
+Relax iter 59 Stage 0 | E = 0.0762654 | Mov = 7.46017e-10 | Volume = 137062 | Steps = 1
+Relax iter 60 Stage 0 | E = 0.0788287 | Mov = 7.58617e-10 | Volume = 137062 | Steps = 1
+Relax iter 61 Stage 0 | E = 0.0814345 | Mov = 7.71218e-10 | Volume = 137062 | Steps = 1
+Relax iter 62 Stage 0 | E = 0.0840826 | Mov = 7.8382e-10 | Volume = 137062 | Steps = 1
+Relax iter 63 Stage 0 | E = 0.086773 | Mov = 7.96422e-10 | Volume = 137062 | Steps = 1
+Relax iter 64 Stage 0 | E = 0.0895059 | Mov = 8.09025e-10 | Volume = 137062 | Steps = 1
+Relax iter 65 Stage 0 | E = 0.0922811 | Mov = 8.21629e-10 | Volume = 137062 | Steps = 1
+Relax iter 66 Stage 0 | E = 0.0950986 | Mov = 8.34233e-10 | Volume = 137062 | Steps = 1
+Relax iter 67 Stage 0 | E = 0.0979586 | Mov = 8.46838e-10 | Volume = 137062 | Steps = 1
+Relax iter 68 Stage 0 | E = 0.100861 | Mov = 8.59443e-10 | Volume = 137062 | Steps = 1
+Relax iter 69 Stage 0 | E = 0.103806 | Mov = 8.72049e-10 | Volume = 137062 | Steps = 1
+Relax iter 70 Stage 0 | E = 0.106793 | Mov = 8.84655e-10 | Volume = 137062 | Steps = 1
+Relax iter 71 Stage 0 | E = 0.109822 | Mov = 8.97261e-10 | Volume = 137062 | Steps = 1
+Relax iter 72 Stage 0 | E = 0.112894 | Mov = 9.09868e-10 | Volume = 137062 | Steps = 1
+Relax iter 73 Stage 0 | E = 0.116008 | Mov = 9.22476e-10 | Volume = 137062 | Steps = 1
+Relax iter 74 Stage 0 | E = 0.119164 | Mov = 9.35083e-10 | Volume = 137062 | Steps = 1
+Relax iter 75 Stage 0 | E = 0.122363 | Mov = 9.47692e-10 | Volume = 137062 | Steps = 1
+Relax iter 76 Stage 0 | E = 0.125605 | Mov = 9.603e-10 | Volume = 137062 | Steps = 1
+Relax iter 77 Stage 0 | E = 0.128888 | Mov = 9.72909e-10 | Volume = 137062 | Steps = 1
+Relax iter 78 Stage 0 | E = 0.132214 | Mov = 9.85518e-10 | Volume = 137062 | Steps = 1
+Relax iter 79 Stage 0 | E = 0.135583 | Mov = 9.98128e-10 | Volume = 137062 | Steps = 1
+Relax iter 80 Stage 0 | E = 0.138993 | Mov = 1.01074e-09 | Volume = 137062 | Steps = 1
+Relax iter 81 Stage 0 | E = 0.142446 | Mov = 1.02335e-09 | Volume = 137062 | Steps = 1
+Relax iter 82 Stage 0 | E = 0.145942 | Mov = 1.03596e-09 | Volume = 137062 | Steps = 1
+Relax iter 83 Stage 0 | E = 0.14948 | Mov = 1.04857e-09 | Volume = 137062 | Steps = 1
+Relax iter 84 Stage 0 | E = 0.15306 | Mov = 1.06118e-09 | Volume = 137062 | Steps = 1
+Relax iter 85 Stage 0 | E = 0.156683 | Mov = 1.07379e-09 | Volume = 137062 | Steps = 1
+Relax iter 86 Stage 0 | E = 0.160348 | Mov = 1.0864e-09 | Volume = 137062 | Steps = 1
+Relax iter 87 Stage 0 | E = 0.164055 | Mov = 1.09901e-09 | Volume = 137062 | Steps = 1
+Relax iter 88 Stage 0 | E = 0.167805 | Mov = 1.11162e-09 | Volume = 137062 | Steps = 1
+Relax iter 89 Stage 0 | E = 0.171597 | Mov = 1.12423e-09 | Volume = 137062 | Steps = 1
+Relax iter 90 Stage 0 | E = 0.175431 | Mov = 1.13685e-09 | Volume = 137062 | Steps = 1
+Relax iter 91 Stage 0 | E = 0.179308 | Mov = 1.14946e-09 | Volume = 137062 | Steps = 1
+Relax iter 92 Stage 0 | E = 0.183227 | Mov = 1.16207e-09 | Volume = 137062 | Steps = 1
+Relax iter 93 Stage 0 | E = 0.187189 | Mov = 1.17468e-09 | Volume = 137062 | Steps = 1
+Relax iter 94 Stage 0 | E = 0.191192 | Mov = 1.1873e-09 | Volume = 137062 | Steps = 1
+Relax iter 95 Stage 0 | E = 0.195239 | Mov = 1.19991e-09 | Volume = 137062 | Steps = 1
+Relax iter 96 Stage 0 | E = 0.199327 | Mov = 1.21252e-09 | Volume = 137062 | Steps = 1
+Relax iter 97 Stage 0 | E = 0.203458 | Mov = 1.22513e-09 | Volume = 137062 | Steps = 1
+Relax iter 98 Stage 0 | E = 0.207632 | Mov = 1.23775e-09 | Volume = 137062 | Steps = 1
+Relax iter 99 Stage 0 | E = 0.211847 | Mov = 1.25036e-09 | Volume = 137062 | Steps = 1
+Relax iter 100 Stage 0 | E = 0.216106 | Mov = 1.26297e-09 | Volume = 137062 | Steps = 1
+Relax iter 101 Stage 0 | E = 0.220406 | Mov = 1.27559e-09 | Volume = 137062 | Steps = 1
+Relax iter 102 Stage 0 | E = 0.224749 | Mov = 1.2882e-09 | Volume = 137062 | Steps = 1
+Relax iter 103 Stage 0 | E = 0.229134 | Mov = 1.30082e-09 | Volume = 137062 | Steps = 1
+Relax iter 104 Stage 0 | E = 0.233562 | Mov = 1.31343e-09 | Volume = 137062 | Steps = 1
+Relax iter 105 Stage 0 | E = 0.238032 | Mov = 1.32604e-09 | Volume = 137062 | Steps = 1
+Relax iter 106 Stage 0 | E = 0.242544 | Mov = 1.33866e-09 | Volume = 137062 | Steps = 1
+Relax iter 107 Stage 0 | E = 0.247099 | Mov = 1.35127e-09 | Volume = 137062 | Steps = 1
+Relax iter 108 Stage 0 | E = 0.251696 | Mov = 1.36389e-09 | Volume = 137062 | Steps = 1
+Relax iter 109 Stage 0 | E = 0.256335 | Mov = 1.3765e-09 | Volume = 137062 | Steps = 1
+Relax iter 110 Stage 0 | E = 0.261017 | Mov = 1.38911e-09 | Volume = 137062 | Steps = 1
+Relax iter 111 Stage 0 | E = 0.265741 | Mov = 1.40173e-09 | Volume = 137062 | Steps = 1
+Relax iter 112 Stage 0 | E = 0.270508 | Mov = 1.41434e-09 | Volume = 137062 | Steps = 1
+Relax iter 113 Stage 0 | E = 0.275317 | Mov = 1.42696e-09 | Volume = 137062 | Steps = 1
+Relax iter 114 Stage 0 | E = 0.280168 | Mov = 1.43957e-09 | Volume = 137062 | Steps = 1
+Relax iter 115 Stage 0 | E = 0.285061 | Mov = 1.45219e-09 | Volume = 137062 | Steps = 1
+Relax iter 116 Stage 0 | E = 0.289998 | Mov = 1.4648e-09 | Volume = 137062 | Steps = 1
+Relax iter 117 Stage 0 | E = 0.294976 | Mov = 1.47742e-09 | Volume = 137062 | Steps = 1
+Relax iter 118 Stage 0 | E = 0.299997 | Mov = 1.49003e-09 | Volume = 137062 | Steps = 1
+Relax iter 119 Stage 0 | E = 0.30506 | Mov = 1.50265e-09 | Volume = 137062 | Steps = 1
+Relax iter 120 Stage 0 | E = 0.310165 | Mov = 1.51526e-09 | Volume = 137062 | Steps = 1
+Relax iter 121 Stage 0 | E = 0.315313 | Mov = 1.52788e-09 | Volume = 137062 | Steps = 1
+Relax iter 122 Stage 0 | E = 0.320503 | Mov = 1.54049e-09 | Volume = 137062 | Steps = 1
+Relax iter 123 Stage 0 | E = 0.325736 | Mov = 1.55311e-09 | Volume = 137062 | Steps = 1
+Relax iter 124 Stage 0 | E = 0.331011 | Mov = 1.56573e-09 | Volume = 137062 | Steps = 1
+Relax iter 125 Stage 0 | E = 0.336328 | Mov = 1.57834e-09 | Volume = 137062 | Steps = 1
+Relax iter 126 Stage 0 | E = 0.341688 | Mov = 1.59096e-09 | Volume = 137062 | Steps = 1
+Relax iter 127 Stage 0 | E = 0.34709 | Mov = 1.60357e-09 | Volume = 137062 | Steps = 1
+Relax iter 128 Stage 0 | E = 0.352534 | Mov = 1.61619e-09 | Volume = 137062 | Steps = 1
+Relax iter 129 Stage 0 | E = 0.358021 | Mov = 1.6288e-09 | Volume = 137062 | Steps = 1
+Relax iter 130 Stage 0 | E = 0.36355 | Mov = 1.64142e-09 | Volume = 137062 | Steps = 1
+Relax iter 131 Stage 0 | E = 0.369122 | Mov = 1.65404e-09 | Volume = 137062 | Steps = 1
+Relax iter 132 Stage 0 | E = 0.374736 | Mov = 1.66665e-09 | Volume = 137062 | Steps = 1
+Relax iter 133 Stage 0 | E = 0.380392 | Mov = 1.67927e-09 | Volume = 137062 | Steps = 1
+Relax iter 134 Stage 0 | E = 0.386091 | Mov = 1.69188e-09 | Volume = 137062 | Steps = 1
+Relax iter 135 Stage 0 | E = 0.391832 | Mov = 1.7045e-09 | Volume = 137062 | Steps = 1
+Relax iter 136 Stage 0 | E = 0.397615 | Mov = 1.71711e-09 | Volume = 137062 | Steps = 1
+Relax iter 137 Stage 0 | E = 0.403441 | Mov = 1.72973e-09 | Volume = 137062 | Steps = 1
+Relax iter 138 Stage 0 | E = 0.409309 | Mov = 1.74235e-09 | Volume = 137062 | Steps = 1
+Relax iter 139 Stage 0 | E = 0.415219 | Mov = 1.75496e-09 | Volume = 137062 | Steps = 1
+Relax iter 140 Stage 0 | E = 0.421172 | Mov = 1.76758e-09 | Volume = 137062 | Steps = 1
+Relax iter 141 Stage 0 | E = 0.427167 | Mov = 1.7802e-09 | Volume = 137062 | Steps = 1
+Relax iter 142 Stage 0 | E = 0.433205 | Mov = 1.79281e-09 | Volume = 137062 | Steps = 1
+Relax iter 143 Stage 0 | E = 0.439285 | Mov = 1.80543e-09 | Volume = 137062 | Steps = 1
+Relax iter 144 Stage 0 | E = 0.445407 | Mov = 1.81804e-09 | Volume = 137062 | Steps = 1
+Relax iter 145 Stage 0 | E = 0.451572 | Mov = 1.83066e-09 | Volume = 137062 | Steps = 1
+Relax iter 146 Stage 0 | E = 0.457779 | Mov = 1.84328e-09 | Volume = 137062 | Steps = 1
+Relax iter 147 Stage 0 | E = 0.464029 | Mov = 1.85589e-09 | Volume = 137062 | Steps = 1
+Relax iter 148 Stage 0 | E = 0.47032 | Mov = 1.86851e-09 | Volume = 137062 | Steps = 1
+Relax iter 149 Stage 0 | E = 0.476654 | Mov = 1.88113e-09 | Volume = 137062 | Steps = 1
+Relax iter 150 Stage 0 | E = 0.483031 | Mov = 1.89374e-09 | Volume = 137062 | Steps = 1
+Relax iter 151 Stage 0 | E = 0.48945 | Mov = 1.90636e-09 | Volume = 137062 | Steps = 1
+Relax iter 152 Stage 0 | E = 0.495911 | Mov = 1.91897e-09 | Volume = 137062 | Steps = 1
+Relax iter 153 Stage 0 | E = 0.502415 | Mov = 1.93159e-09 | Volume = 137062 | Steps = 1
+Relax iter 154 Stage 0 | E = 0.508961 | Mov = 1.94421e-09 | Volume = 137062 | Steps = 1
+Relax iter 155 Stage 0 | E = 0.515549 | Mov = 1.95682e-09 | Volume = 137062 | Steps = 1
+Relax iter 156 Stage 0 | E = 0.52218 | Mov = 1.96944e-09 | Volume = 137062 | Steps = 1
+Relax iter 157 Stage 0 | E = 0.528853 | Mov = 1.98206e-09 | Volume = 137062 | Steps = 1
+Relax iter 158 Stage 0 | E = 0.535569 | Mov = 1.99467e-09 | Volume = 137062 | Steps = 1
+Relax iter 159 Stage 0 | E = 0.542326 | Mov = 2.00729e-09 | Volume = 137062 | Steps = 1
+Relax iter 160 Stage 0 | E = 0.549127 | Mov = 2.01991e-09 | Volume = 137062 | Steps = 1
+Relax iter 161 Stage 0 | E = 0.555969 | Mov = 2.03252e-09 | Volume = 137062 | Steps = 1
+Relax iter 162 Stage 0 | E = 0.562854 | Mov = 2.04514e-09 | Volume = 137062 | Steps = 1
+Relax iter 163 Stage 0 | E = 0.569781 | Mov = 2.05776e-09 | Volume = 137062 | Steps = 1
+Relax iter 164 Stage 0 | E = 0.576751 | Mov = 2.07037e-09 | Volume = 137062 | Steps = 1
+Relax iter 165 Stage 0 | E = 0.583763 | Mov = 2.08299e-09 | Volume = 137062 | Steps = 1
+Relax iter 166 Stage 0 | E = 0.590818 | Mov = 2.09561e-09 | Volume = 137062 | Steps = 1
+Relax iter 167 Stage 0 | E = 0.597914 | Mov = 2.10822e-09 | Volume = 137062 | Steps = 1
+Relax iter 168 Stage 0 | E = 0.605053 | Mov = 2.12084e-09 | Volume = 137062 | Steps = 1
+Relax iter 169 Stage 0 | E = 0.612235 | Mov = 2.13346e-09 | Volume = 137062 | Steps = 1
+Relax iter 170 Stage 0 | E = 0.619459 | Mov = 2.14607e-09 | Volume = 137062 | Steps = 1
+Relax iter 171 Stage 0 | E = 0.626725 | Mov = 2.15869e-09 | Volume = 137062 | Steps = 1
+Relax iter 172 Stage 0 | E = 0.634034 | Mov = 2.17131e-09 | Volume = 137062 | Steps = 1
+Relax iter 173 Stage 0 | E = 0.641385 | Mov = 2.18392e-09 | Volume = 137062 | Steps = 1
+Relax iter 174 Stage 0 | E = 0.648778 | Mov = 2.19654e-09 | Volume = 137062 | Steps = 1
+Relax iter 175 Stage 0 | E = 0.656214 | Mov = 2.20916e-09 | Volume = 137062 | Steps = 1
+Relax iter 176 Stage 0 | E = 0.663692 | Mov = 2.22177e-09 | Volume = 137062 | Steps = 1
+Relax iter 177 Stage 0 | E = 0.671212 | Mov = 2.23439e-09 | Volume = 137062 | Steps = 1
+Relax iter 178 Stage 0 | E = 0.678775 | Mov = 2.24701e-09 | Volume = 137062 | Steps = 1
+Relax iter 179 Stage 0 | E = 0.68638 | Mov = 2.25962e-09 | Volume = 137062 | Steps = 1
+Relax iter 180 Stage 0 | E = 0.694028 | Mov = 2.27224e-09 | Volume = 137062 | Steps = 1
+Relax iter 181 Stage 0 | E = 0.701718 | Mov = 2.28486e-09 | Volume = 137062 | Steps = 1
+Relax iter 182 Stage 0 | E = 0.70945 | Mov = 2.29747e-09 | Volume = 137062 | Steps = 1
+Relax iter 183 Stage 0 | E = 0.717225 | Mov = 2.31009e-09 | Volume = 137062 | Steps = 1
+Relax iter 184 Stage 0 | E = 0.725042 | Mov = 2.32271e-09 | Volume = 137062 | Steps = 1
+Relax iter 185 Stage 0 | E = 0.732901 | Mov = 2.33532e-09 | Volume = 137062 | Steps = 1
+Relax iter 186 Stage 0 | E = 0.740803 | Mov = 2.34794e-09 | Volume = 137062 | Steps = 1
+Relax iter 187 Stage 0 | E = 0.748747 | Mov = 2.36056e-09 | Volume = 137062 | Steps = 1
+Relax iter 188 Stage 0 | E = 0.756734 | Mov = 2.37317e-09 | Volume = 137062 | Steps = 1
+Relax iter 189 Stage 0 | E = 0.764763 | Mov = 2.38579e-09 | Volume = 137062 | Steps = 1
+Relax iter 190 Stage 0 | E = 0.772834 | Mov = 2.39841e-09 | Volume = 137062 | Steps = 1
+Relax iter 191 Stage 0 | E = 0.780948 | Mov = 2.41102e-09 | Volume = 137062 | Steps = 1
+Relax iter 192 Stage 0 | E = 0.789104 | Mov = 2.42364e-09 | Volume = 137062 | Steps = 1
+Relax iter 193 Stage 0 | E = 0.797302 | Mov = 2.43626e-09 | Volume = 137062 | Steps = 1
+Relax iter 194 Stage 0 | E = 0.805543 | Mov = 2.44887e-09 | Volume = 137062 | Steps = 1
+Relax iter 195 Stage 0 | E = 0.813826 | Mov = 2.46149e-09 | Volume = 137062 | Steps = 1
+Relax iter 196 Stage 0 | E = 0.822151 | Mov = 2.47411e-09 | Volume = 137062 | Steps = 1
+Relax iter 197 Stage 0 | E = 0.830519 | Mov = 2.48672e-09 | Volume = 137062 | Steps = 1
+Relax iter 198 Stage 0 | E = 0.838929 | Mov = 2.49934e-09 | Volume = 137062 | Steps = 1
+Relax iter 199 Stage 0 | E = 0.847382 | Mov = 2.51196e-09 | Volume = 137062 | Steps = 1
+Relax iter 200 Stage 0 | E = 0.855877 | Mov = 2.52457e-09 | Volume = 137062 | Steps = 1
+Relax iter 201 Stage 0 | E = 0.864414 | Mov = 2.53719e-09 | Volume = 137062 | Steps = 1
+Relax iter 202 Stage 0 | E = 0.872994 | Mov = 2.54981e-09 | Volume = 137062 | Steps = 1
+Relax iter 203 Stage 0 | E = 0.881616 | Mov = 2.56242e-09 | Volume = 137062 | Steps = 1
+Relax iter 204 Stage 0 | E = 0.89028 | Mov = 2.57504e-09 | Volume = 137062 | Steps = 1
+Relax iter 205 Stage 0 | E = 0.898987 | Mov = 2.58766e-09 | Volume = 137062 | Steps = 1
+Relax iter 206 Stage 0 | E = 0.907736 | Mov = 2.60027e-09 | Volume = 137062 | Steps = 1
+Relax iter 207 Stage 0 | E = 0.916527 | Mov = 2.61289e-09 | Volume = 137062 | Steps = 1
+Relax iter 208 Stage 0 | E = 0.925361 | Mov = 2.62551e-09 | Volume = 137062 | Steps = 1
+Relax iter 209 Stage 0 | E = 0.934237 | Mov = 2.63812e-09 | Volume = 137062 | Steps = 1
+Relax iter 210 Stage 0 | E = 0.943156 | Mov = 2.65074e-09 | Volume = 137062 | Steps = 1
+Relax iter 211 Stage 0 | E = 0.952117 | Mov = 2.66336e-09 | Volume = 137062 | Steps = 1
+Relax iter 212 Stage 0 | E = 0.96112 | Mov = 2.67597e-09 | Volume = 137062 | Steps = 1
+Relax iter 213 Stage 0 | E = 0.970166 | Mov = 2.68859e-09 | Volume = 137062 | Steps = 1
+Relax iter 214 Stage 0 | E = 0.979254 | Mov = 2.70121e-09 | Volume = 137062 | Steps = 1
+Relax iter 215 Stage 0 | E = 0.988384 | Mov = 2.71382e-09 | Volume = 137062 | Steps = 1
+Relax iter 216 Stage 0 | E = 0.997557 | Mov = 2.72644e-09 | Volume = 137062 | Steps = 1
+Relax iter 217 Stage 0 | E = 1.00677 | Mov = 2.73906e-09 | Volume = 137062 | Steps = 1
+Relax iter 218 Stage 0 | E = 1.01603 | Mov = 2.75167e-09 | Volume = 137062 | Steps = 1
+Relax iter 219 Stage 0 | E = 1.02533 | Mov = 2.76429e-09 | Volume = 137062 | Steps = 1
+Relax iter 220 Stage 0 | E = 1.03467 | Mov = 2.77691e-09 | Volume = 137062 | Steps = 1
+Relax iter 221 Stage 0 | E = 1.04406 | Mov = 2.78952e-09 | Volume = 137062 | Steps = 1
+Relax iter 222 Stage 0 | E = 1.05348 | Mov = 2.80214e-09 | Volume = 137062 | Steps = 1
+Relax iter 223 Stage 0 | E = 1.06295 | Mov = 2.81476e-09 | Volume = 137062 | Steps = 1
+Relax iter 224 Stage 0 | E = 1.07246 | Mov = 2.82737e-09 | Volume = 137062 | Steps = 1
+Relax iter 225 Stage 0 | E = 1.08202 | Mov = 2.83999e-09 | Volume = 137062 | Steps = 1
+Relax iter 226 Stage 0 | E = 1.09162 | Mov = 2.85261e-09 | Volume = 137062 | Steps = 1
+Relax iter 227 Stage 0 | E = 1.10125 | Mov = 2.86522e-09 | Volume = 137062 | Steps = 1
+Relax iter 228 Stage 0 | E = 1.11094 | Mov = 2.87784e-09 | Volume = 137062 | Steps = 1
+Relax iter 229 Stage 0 | E = 1.12066 | Mov = 2.89046e-09 | Volume = 137062 | Steps = 1
+Relax iter 230 Stage 0 | E = 1.13042 | Mov = 2.90307e-09 | Volume = 137062 | Steps = 1
+Relax iter 231 Stage 0 | E = 1.14023 | Mov = 2.91569e-09 | Volume = 137062 | Steps = 1
+Relax iter 232 Stage 0 | E = 1.15008 | Mov = 2.9283e-09 | Volume = 137062 | Steps = 1
+Relax iter 233 Stage 0 | E = 1.15998 | Mov = 2.94092e-09 | Volume = 137062 | Steps = 1
+Relax iter 234 Stage 0 | E = 1.16991 | Mov = 2.95354e-09 | Volume = 137062 | Steps = 1
+Relax iter 235 Stage 0 | E = 1.17989 | Mov = 2.96615e-09 | Volume = 137062 | Steps = 1
+Relax iter 236 Stage 0 | E = 1.18991 | Mov = 2.97877e-09 | Volume = 137062 | Steps = 1
+Relax iter 237 Stage 0 | E = 1.19997 | Mov = 2.99139e-09 | Volume = 137062 | Steps = 1
+Relax iter 238 Stage 0 | E = 1.21008 | Mov = 3.004e-09 | Volume = 137062 | Steps = 1
+Relax iter 239 Stage 0 | E = 1.22022 | Mov = 3.01662e-09 | Volume = 137062 | Steps = 1
+Relax iter 240 Stage 0 | E = 1.23041 | Mov = 3.02924e-09 | Volume = 137062 | Steps = 1
+Relax iter 241 Stage 0 | E = 1.24065 | Mov = 3.04185e-09 | Volume = 137062 | Steps = 1
+Relax iter 242 Stage 0 | E = 1.25092 | Mov = 3.05447e-09 | Volume = 137062 | Steps = 1
+Relax iter 243 Stage 0 | E = 1.26124 | Mov = 3.06709e-09 | Volume = 137062 | Steps = 1
+Relax iter 244 Stage 0 | E = 1.2716 | Mov = 3.0797e-09 | Volume = 137062 | Steps = 1
+Relax iter 245 Stage 0 | E = 1.282 | Mov = 3.09232e-09 | Volume = 137062 | Steps = 1
+Relax iter 246 Stage 0 | E = 1.29244 | Mov = 3.10493e-09 | Volume = 137062 | Steps = 1
+Relax iter 247 Stage 0 | E = 1.30293 | Mov = 3.11755e-09 | Volume = 137062 | Steps = 1
+Relax iter 248 Stage 0 | E = 1.31346 | Mov = 3.13017e-09 | Volume = 137062 | Steps = 1
+Relax iter 249 Stage 0 | E = 1.32403 | Mov = 3.14278e-09 | Volume = 137062 | Steps = 1
+Relax iter 250 Stage 0 | E = 1.33464 | Mov = 3.1554e-09 | Volume = 137062 | Steps = 1
+Relax iter 251 Stage 0 | E = 1.3453 | Mov = 3.16802e-09 | Volume = 137062 | Steps = 1
+Relax iter 252 Stage 0 | E = 1.35599 | Mov = 3.18063e-09 | Volume = 137062 | Steps = 1
+Relax iter 253 Stage 0 | E = 1.36673 | Mov = 3.19325e-09 | Volume = 137062 | Steps = 1
+Relax iter 254 Stage 0 | E = 1.37752 | Mov = 3.20586e-09 | Volume = 137062 | Steps = 1
+Relax iter 255 Stage 0 | E = 1.38834 | Mov = 3.21848e-09 | Volume = 137062 | Steps = 1
+Relax iter 256 Stage 0 | E = 1.39921 | Mov = 3.2311e-09 | Volume = 137062 | Steps = 1
+Relax iter 257 Stage 0 | E = 1.41012 | Mov = 3.24371e-09 | Volume = 137062 | Steps = 1
+Relax iter 258 Stage 0 | E = 1.42107 | Mov = 3.25633e-09 | Volume = 137062 | Steps = 1
+Relax iter 259 Stage 0 | E = 1.43207 | Mov = 3.26895e-09 | Volume = 137062 | Steps = 1
+Relax iter 260 Stage 0 | E = 1.4431 | Mov = 3.28156e-09 | Volume = 137062 | Steps = 1
+Relax iter 261 Stage 0 | E = 1.45418 | Mov = 3.29418e-09 | Volume = 137062 | Steps = 1
+Relax iter 262 Stage 0 | E = 1.4653 | Mov = 3.30679e-09 | Volume = 137062 | Steps = 1
+Relax iter 263 Stage 0 | E = 1.47647 | Mov = 3.31941e-09 | Volume = 137062 | Steps = 1
+Relax iter 264 Stage 0 | E = 1.48768 | Mov = 3.33203e-09 | Volume = 137062 | Steps = 1
+Relax iter 265 Stage 0 | E = 1.49892 | Mov = 3.34464e-09 | Volume = 137062 | Steps = 1
+Relax iter 266 Stage 0 | E = 1.51022 | Mov = 3.35726e-09 | Volume = 137062 | Steps = 1
+Relax iter 267 Stage 0 | E = 1.52155 | Mov = 3.36987e-09 | Volume = 137062 | Steps = 1
+Relax iter 268 Stage 0 | E = 1.53292 | Mov = 3.38249e-09 | Volume = 137062 | Steps = 1
+Relax iter 269 Stage 0 | E = 1.54434 | Mov = 3.39511e-09 | Volume = 137062 | Steps = 1
+Relax iter 270 Stage 0 | E = 1.5558 | Mov = 3.40772e-09 | Volume = 137062 | Steps = 1
+Relax iter 271 Stage 0 | E = 1.56731 | Mov = 3.42034e-09 | Volume = 137062 | Steps = 1
+Relax iter 272 Stage 0 | E = 1.57885 | Mov = 3.43295e-09 | Volume = 137062 | Steps = 1
+Relax iter 273 Stage 0 | E = 1.59044 | Mov = 3.44557e-09 | Volume = 137062 | Steps = 1
+Relax iter 274 Stage 0 | E = 1.60207 | Mov = 3.45819e-09 | Volume = 137062 | Steps = 1
+Relax iter 275 Stage 0 | E = 1.61374 | Mov = 3.4708e-09 | Volume = 137062 | Steps = 1
+Relax iter 276 Stage 0 | E = 1.62546 | Mov = 3.48342e-09 | Volume = 137062 | Steps = 1
+Relax iter 277 Stage 0 | E = 1.63721 | Mov = 3.49603e-09 | Volume = 137062 | Steps = 1
+Relax iter 278 Stage 0 | E = 1.64901 | Mov = 3.50865e-09 | Volume = 137062 | Steps = 1
+Relax iter 279 Stage 0 | E = 1.66086 | Mov = 3.52127e-09 | Volume = 137062 | Steps = 1
+Relax iter 280 Stage 0 | E = 1.67274 | Mov = 3.53388e-09 | Volume = 137062 | Steps = 1
+Relax iter 281 Stage 0 | E = 1.68467 | Mov = 3.5465e-09 | Volume = 137062 | Steps = 1
+Relax iter 282 Stage 0 | E = 1.69664 | Mov = 3.55911e-09 | Volume = 137062 | Steps = 1
+Relax iter 283 Stage 0 | E = 1.70865 | Mov = 3.57173e-09 | Volume = 137062 | Steps = 1
+Relax iter 284 Stage 0 | E = 1.7207 | Mov = 3.58434e-09 | Volume = 137062 | Steps = 1
+Relax iter 285 Stage 0 | E = 1.7328 | Mov = 3.59696e-09 | Volume = 137062 | Steps = 1
+Relax iter 286 Stage 0 | E = 1.74493 | Mov = 3.60958e-09 | Volume = 137062 | Steps = 1
+Relax iter 287 Stage 0 | E = 1.75712 | Mov = 3.62219e-09 | Volume = 137062 | Steps = 1
+Relax iter 288 Stage 0 | E = 1.76934 | Mov = 3.63481e-09 | Volume = 137062 | Steps = 1

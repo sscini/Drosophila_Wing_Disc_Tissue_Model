@@ -181,6 +181,8 @@ struct VolumeSpringPrismFunctor
         fx += prefactor * gx;
         fy += prefactor * gy;
         fz += prefactor * gz;
+        
+        
 
         return thrust::make_tuple(node_id, bucketId, fx, fy, fz);
     }

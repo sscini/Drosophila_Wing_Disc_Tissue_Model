@@ -989,6 +989,8 @@ void System::solveSystem()
             std::cout << "Relax iter " << iter 
                       << " Stage " << stage 
                       << " | E = " << E 
+                      << " | Linear E = " << linearSpringInfoVecs.linear_spring_energy
+                      << " | Volume E = " << generalParams.volume_energy
                       << " | Mov = " << generalParams.dx 
                       << " | Volume = " << generalParams.current_total_volume
                       << " | Steps = " << k << std::endl;

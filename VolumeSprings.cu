@@ -81,7 +81,8 @@ void ComputeVolumeSprings(
                   << "). Clamping to " << max_prefactor << std::endl;
         prefactor = (prefactor > 0) ? max_prefactor : -max_prefactor;
     }
-
+    
+    generalParams.volume_energy = kv * volume_diff * volume_diff ;
     const int Nnodes = (int)coordInfoVecs.nodeLocX.size();
 
     // Create counting iterator for node IDs

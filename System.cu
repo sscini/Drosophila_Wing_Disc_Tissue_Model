@@ -790,14 +790,6 @@ void System::solveSystem()
         {
             continue;
         }
-
-        // std::cout<<"it got till here - nav 1 "<< std::endl; // it got till here.
-
-        // Mark edge as boundary if the two adjacent triangle IDs are identical.
-        // std::cout<<"T1 = "<<T1<<std::endl;
-        // std::cout<<"T2 = "<<T2<<std::endl;
-        // std::cout<<"generalParams.edges_in_upperhem["<<i<<"] = "<< generalParams.edges_in_upperhem[i]<<std::endl;
-
         if (T1 == T2)
         {
             generalParams.boundaries_in_lowerhem[i] = 1;
@@ -810,33 +802,17 @@ void System::solveSystem()
 //            // mark these nodes as boundary or (fixed).
 //            generalParams.nodes_in_upperhem[bdry_node1] = 10;
 //            generalParams.nodes_in_upperhem[bdry_node2] = 10;
-            coordInfoVecs.isNodeFixed[bdry_node1] = false;
-            coordInfoVecs.isNodeFixed[bdry_node2] = false;
+            coordInfoVecs.isNodeFixed[bdry_node1] = true;
+            coordInfoVecs.isNodeFixed[bdry_node2] = true;
             
         }
-//        // This is for apical boundary nodes.
-//        if (T1 == T2 && generalParams.edges_in_upperhem[i] == 0)
-//        { // nav added the second conditional && generalParams.nodes_in_upperhem[i]==1 so that the new apical model would work.
-//            generalParams.boundaries_in_upperhem[i] = 1;
-//            boundary_edge_list.push_back(i);
-//
-//            // std::cout<<"it got till here - nav 3 "<< std::endl;
-//            int bdry_node1 = static_cast<int>(coordInfoVecs.edges2Nodes_1[i]);
-//            int bdry_node2 = static_cast<int>(coordInfoVecs.edges2Nodes_2[i]);
-//            boundary_node_list.push_back(bdry_node1);
-//            boundary_node_list.push_back(bdry_node2);
-//
-//            // Optionally mark these nodes as boundary (or fixed).
-//            generalParams.nodes_in_upperhem[bdry_node1] = 1; // nav changed this from 0 to 10.
-//            generalParams.nodes_in_upperhem[bdry_node2] = 1; // nav changed this from 0 to 10.
-//            coordInfoVecs.isNodeFixed[bdry_node1] = false;
-//            coordInfoVecs.isNodeFixed[bdry_node2] = false;
-//
-//            // std::cout<<"it got till here - nav 4 "<< std::endl;
-//        }
         else
         {
             generalParams.boundaries_in_upperhem[i] = -1;
+            int bdry_node1 = static_cast<int>(coordInfoVecs.edges2Nodes_1[i]);
+            int bdry_node2 = static_cast<int>(coordInfoVecs.edges2Nodes_2[i]);
+            coordInfoVecs.isNodeFixed[bdry_node1] = false;
+            coordInfoVecs.isNodeFixed[bdry_node2] = false;
         }
     }
 
@@ -937,8 +913,9 @@ void System::solveSystem()
     //              STRAIN TENSOR STAGES
     // ============================================
 
-    int stages = generalParams.Tf;
+    int stages = 2;//generalParams.Tf;
     double frac = 1.0;   // full-field application per stage
+    linearSpringInfoVecs.edge_rest_length = linearSpringInfoVecs.edge_initial_length; // copy initial lengths to the rest length vector. 
 
     for (int stage = 0; stage < stages; stage++)
     {
@@ -973,7 +950,7 @@ void System::solveSystem()
         // ============================================
         //     GRADIENT RELAXATION LOOP
         // ============================================
-
+        
         for (int iter = 0; iter < Nsteps; iter++)
         {
             // linearly increment rest lengths if doing time sweep
@@ -1005,6 +982,7 @@ void System::solveSystem()
 //                      << " | Volume = " << generalParams.current_total_volume << std::endl;
 
         storage->print_VTK_File();
+        linearSpringInfoVecs.edge_initial_length = linearSpringInfoVecs.edge_rest_length;
     }
     std::cout << std::string(60, '=') << std::endl;
 }

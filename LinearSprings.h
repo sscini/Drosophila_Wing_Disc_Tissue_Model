@@ -78,12 +78,12 @@ struct LinearSpringFunctor {
         }
         
         // Determine spring constant based on edge layer
-        double what_spring_constant;
+        double what_spring_constant;// = spring_constant;
         int edge_layer = edges_in_upperhem[counter];
         
-        if (edge_layer == 1) {
+        if (edge_layer >= 0) {
             // Horizontal edges in upper hemisphere - weak springs
-            what_spring_constant = spring_constant_weak;
+            what_spring_constant = spring_constant;
         }
         else if (edge_layer == -1) {
             // Vertical edges - use vertical spring constant

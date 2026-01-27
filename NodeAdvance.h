@@ -50,9 +50,9 @@ struct SaxpyFunctorPrimary {
                 //dx += sqrt((d_x*d_x)+(d_y*d_y)+(d_z*d_z));
       
       
-          			double xLocNew = thrust::get<1>(p3) + dt * (thrust::get<0>(f3) );//dt/mass * (thrust::get<0>(f3) );
-          			double yLocNew = thrust::get<2>(p3) + dt * thrust::get<1>(f3);//dt/mass * thrust::get<1>(f3);
-          			double zLocNew = thrust::get<3>(p3) + dt * thrust::get<2>(f3);//dt/mass * thrust::get<2>(f3);
+          			double xLocNew = thrust::get<1>(p3) + d_x; //dt * (thrust::get<0>(f3) );//dt/mass * (thrust::get<0>(f3) );
+          			double yLocNew = thrust::get<2>(p3) + d_y;//dt * thrust::get<1>(f3);//dt/mass * thrust::get<1>(f3);
+          			double zLocNew = thrust::get<3>(p3) + d_z;//dt * thrust::get<2>(f3);//dt/mass * thrust::get<2>(f3);
           
           
           			return thrust::make_tuple(xLocNew, yLocNew, zLocNew);

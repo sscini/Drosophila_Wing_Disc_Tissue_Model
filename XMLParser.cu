@@ -236,8 +236,12 @@ bool XMLParser::parseFile(const std::string& filename, SystemBuilder& builder) {
             if (!parseXYZ(node.text().as_string(), x, y, z)) {
                 std::cerr << "XMLParser: parse body node error" << std::endl; return false;
             }
-            // Body sublayer index: 1..N_body
-            int bodyLayer = (idxWithinBody / A) + 1;
+            // Body sublayer index: N_body down to 1
+            // First body layer (closest to apical) gets highest body layer number (N_body)
+            // Last body layer (closest to basal) gets layer 1
+            // This ensures layer N_body+1 (apical) connects to layer N_body (first body),
+            // layer N_body connects to layer N_body-1, ..., layer 1 connects to layer 0 (basal)
+            int bodyLayer = N_body - (idxWithinBody / A);  // N_body, N_body-1, ..., 1
             builder.addNode(x, y, z);
             builder.addLayerFlag_node(bodyLayer);
         }

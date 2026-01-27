@@ -705,6 +705,113 @@ void System::Solve_Forces()
           linearSpringInfoVecs,
           ljInfoVecs,
           prismInfoVecs);
+          
+        ComputeVolume(
+          generalParams,
+          coordInfoVecs,
+          linearSpringInfoVecs,
+          ljInfoVecs,
+          prismInfoVecs);
+          // Add this diagnostic code in Solve_Forces(), right after ComputeVolume():
+
+        static int debug_call_count = 0;
+        if (debug_call_count < 10 && generalParams.current_total_volume < 0) {
+            std::cout << "\n=== NEGATIVE VOLUME DEBUG (call " << debug_call_count << ") ===" << std::endl;
+            
+            const int P = prismInfoVecs.num_prisms;
+            const int N = (int)coordInfoVecs.nodeLocX.size();
+            
+            // Copy prism connectivity to host
+            thrust::host_vector<int> hP1 = prismInfoVecs.P1;
+            thrust::host_vector<int> hP2 = prismInfoVecs.P2;
+            thrust::host_vector<int> hP3 = prismInfoVecs.P3;
+            thrust::host_vector<int> hP4 = prismInfoVecs.P4;
+            thrust::host_vector<int> hP5 = prismInfoVecs.P5;
+            thrust::host_vector<int> hP6 = prismInfoVecs.P6;
+            
+            // Copy coordinates to host
+            std::vector<double> X(N), Y(N), Z(N);
+            for (int i = 0; i < N; ++i) {
+                X[i] = coordInfoVecs.nodeLocX[i];
+                Y[i] = coordInfoVecs.nodeLocY[i];
+                Z[i] = coordInfoVecs.nodeLocZ[i];
+            }
+            
+            // Lambda to compute 6*volume of tetrahedron
+            auto sixV_tet = [&](int i, int j, int k, int l) -> double {
+                double ux = X[i] - X[l], uy = Y[i] - Y[l], uz = Z[i] - Z[l];
+                double vx = X[j] - X[l], vy = Y[j] - Y[l], vz = Z[j] - Z[l];
+                double wx = X[k] - X[l], wy = Y[k] - Y[l], wz = Z[k] - Z[l];
+                double cx = vy * wz - vz * wy;
+                double cy = vz * wx - vx * wz;
+                double cz = vx * wy - vy * wx;
+                return ux * cx + uy * cy + uz * cz;
+            };
+            
+            int neg_count = 0;
+            double pos_sum = 0.0, neg_sum = 0.0;
+            
+            // Track first few negative prisms for detailed output
+            std::vector<int> first_negative_prisms;
+            
+            for (int p = 0; p < P; ++p) {
+                int a = hP1[p], b = hP2[p], c = hP3[p];
+                int A = hP4[p], B = hP5[p], C = hP6[p];
+                
+                // Same decomposition as VolumeComp.cu
+                double s1 = sixV_tet(b, c, A, a);
+                double s2 = sixV_tet(b, A, C, a);
+                double s3 = sixV_tet(A, B, C, a);
+                double vol = (s1 + s2 + s3) / 6.0;
+                
+                if (vol < 0) {
+                    neg_count++;
+                    neg_sum += vol;
+                    if (first_negative_prisms.size() < 5) {
+                        first_negative_prisms.push_back(p);
+                    }
+                } else {
+                    pos_sum += vol;
+                }
+            }
+            
+            std::cout << "Total prisms: " << P << std::endl;
+            std::cout << "Positive prisms: " << (P - neg_count) << ", sum = " << pos_sum << std::endl;
+            std::cout << "Negative prisms: " << neg_count << ", sum = " << neg_sum << std::endl;
+            std::cout << "Net volume: " << (pos_sum + neg_sum) << std::endl;
+            std::cout << "Reported volume: " << generalParams.current_total_volume << std::endl;
+            
+            // Print details of first few negative prisms
+            if (!first_negative_prisms.empty()) {
+                std::cout << "\nFirst negative prisms:" << std::endl;
+                thrust::host_vector<int> hLayer = generalParams.nodes_in_upperhem;
+                
+                for (int p : first_negative_prisms) {
+                    int a = hP1[p], b = hP2[p], c = hP3[p];
+                    int A = hP4[p], B = hP5[p], C = hP6[p];
+                    
+                    double s1 = sixV_tet(b, c, A, a);
+                    double s2 = sixV_tet(b, A, C, a);
+                    double s3 = sixV_tet(A, B, C, a);
+                    double vol = (s1 + s2 + s3) / 6.0;
+                    
+                    std::cout << "  Prism " << p << ": vol=" << vol << std::endl;
+                    std::cout << "    Top (a,b,c): " << a << "," << b << "," << c 
+                              << " layers: " << hLayer[a] << "," << hLayer[b] << "," << hLayer[c] << std::endl;
+                    std::cout << "    Bot (A,B,C): " << A << "," << B << "," << C 
+                              << " layers: " << hLayer[A] << "," << hLayer[B] << "," << hLayer[C] << std::endl;
+                    std::cout << "    Tet volumes: s1=" << s1/6.0 << " s2=" << s2/6.0 << " s3=" << s3/6.0 << std::endl;
+                    
+                    // Print node positions
+                    std::cout << "    Positions:" << std::endl;
+                    std::cout << "      a(" << a << "): " << X[a] << "," << Y[a] << "," << Z[a] << std::endl;
+                    std::cout << "      A(" << A << "): " << X[A] << "," << Y[A] << "," << Z[A] << std::endl;
+                }
+            }
+            
+            std::cout << "=== END DEBUG ===" << std::endl << std::endl;
+            debug_call_count++;
+        }
     // Compute forces and energy due to volume springs. //(nav - commenting these out for now for flat surface 5/29/24) Nav had uncommented but she's bringing the comment back because testing out Active shape mesh 02/27/25
       	ComputeVolumeSprings(
       		coordInfoVecs,
@@ -762,6 +869,35 @@ void System::solveSystem()
     std::cout << "      DROSOPHILA WING DISC EVERSION SIMULATION" << std::endl;
     std::cout << std::string(60, '=') << std::endl;
     
+    // Invert layer flags if geometry is inverted
+    // (i.e., if higher layer numbers have lower z-coordinates)
+    {
+        thrust::host_vector<int> hLayer = generalParams.nodes_in_upperhem;
+        int maxFlag = *std::max_element(hLayer.begin(), hLayer.end());
+        
+        // Check if layer 4 has lower z than expected
+        double avg_z_top = 0, avg_z_bot = 0;
+        int cnt_top = 0, cnt_bot = 0;
+        for (int i = 0; i < hLayer.size(); ++i) {
+            if (hLayer[i] == maxFlag) {
+                avg_z_top += coordInfoVecs.nodeLocZ[i];
+                cnt_top++;
+            } else if (hLayer[i] == 0) {
+                avg_z_bot += coordInfoVecs.nodeLocZ[i];
+                cnt_bot++;
+            }
+        }
+        avg_z_top /= cnt_top;
+        avg_z_bot /= cnt_bot;
+        
+        if (avg_z_top < avg_z_bot) {
+            std::cout << "WARNING: Layer flags appear inverted. Fixing..." << std::endl;
+            for (int i = 0; i < hLayer.size(); ++i) {
+                hLayer[i] = maxFlag - hLayer[i];
+            }
+            generalParams.nodes_in_upperhem = hLayer;
+        }
+    }
     // Build prisms for volume computation
     BuildPrismsFromLayerFlags(generalParams, coordInfoVecs, prismInfoVecs);
     
@@ -974,6 +1110,11 @@ void System::solveSystem()
 
             if (iter % 1000 == 0)
                 storage->print_VTK_File();
+                
+//            BuildPrismsFromLayerFlags(
+//              generalParams,
+//              coordInfoVecs,
+//              prismInfoVecs);
         }
 //        std::cout //"Relax iter " << iter 
 //                      << " Stage " << stage 

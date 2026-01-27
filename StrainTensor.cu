@@ -380,38 +380,279 @@ void StrainTensorGPU::computeBasisVectorsWithDVSeparation(
         h_eH_y[i] = ny;
         h_eH_z[i] = nz;
         
-        // Compute e_phi as cross product of e_h and e_R
-        double phi_x = ny * radial_z - nz * radial_y;
-        double phi_y = nz * radial_x - nx * radial_z;
-        double phi_z = nx * radial_y - ny * radial_x;
+        // ============================================================================
+        // FIX: Orthonormalize Basis Vectors Using Gram-Schmidt
+        //
+        // The problem: e_R (radial from region origin) and e_h (surface normal from
+        // mesh center) are NOT perpendicular on a spherical dome.
+        //
+        // The fix: Use Gram-Schmidt orthonormalization to ensure the basis is
+        // orthonormal before assembling the strain tensor.
+        //
+        // In StrainTensor.cu, find the section in computeBasisVectorsWithDVSeparation()
+        // where e_phi is computed (around lines 383-414), and REPLACE with this code:
+        // ============================================================================
         
-        double phi_mag = sqrt(phi_x*phi_x + phi_y*phi_y + phi_z*phi_z);
+                // ====================================================================
+                // GRAM-SCHMIDT ORTHONORMALIZATION
+                // 
+                // We want an orthonormal basis {e_R, e_phi, e_h} where:
+                //   - e_R is the primary direction (radial from region origin)
+                //   - e_h is perpendicular to e_R and roughly aligned with surface normal
+                //   - e_phi is perpendicular to both (tangential/circumferential)
+                //
+                // Process:
+                //   1. Start with e_R (already unit length)
+                //   2. Orthogonalize e_h against e_R: e_h' = e_h - (e_h·e_R)*e_R
+                //   3. Normalize e_h'
+                //   4. Compute e_phi = e_h' × e_R (guaranteed perpendicular to both)
+                // ====================================================================
+                
+                // Step 1: e_R is already computed and normalized (radial_x, radial_y, radial_z)
+                // Store e_R
+                h_eR_x[i] = radial_x;
+                h_eR_y[i] = radial_y;
+                h_eR_z[i] = radial_z;
+                h_pathlength[i] = pathlength;
+                
+                // Step 2: Compute initial surface normal (e_h_raw)
+                nx = x - origins.center_x;
+                ny = y - origins.center_y;
+                nz = z - origins.center_z;
+                n_mag = sqrt(nx*nx + ny*ny + nz*nz);
+                
+                if (n_mag > 1e-10) {
+                    nx /= n_mag;
+                    ny /= n_mag;
+                    nz /= n_mag;
+                } else {
+                    nx = 0; ny = 0; nz = 1;
+                }
+                
+                // Step 3: Orthogonalize e_h against e_R using Gram-Schmidt
+                // e_h_orth = e_h_raw - (e_h_raw · e_R) * e_R
+                double dot_h_R = nx*radial_x + ny*radial_y + nz*radial_z;
+                
+                double hx = nx - dot_h_R * radial_x;
+                double hy = ny - dot_h_R * radial_y;
+                double hz = nz - dot_h_R * radial_z;
+                
+                // Normalize e_h
+                double h_mag = sqrt(hx*hx + hy*hy + hz*hz);
+                
+                if (h_mag > 1e-10) {
+                    hx /= h_mag;
+                    hy /= h_mag;
+                    hz /= h_mag;
+                } else {
+                    // e_h was parallel to e_R, need to pick an arbitrary perpendicular direction
+                    // Find a vector not parallel to e_R
+                    if (fabs(radial_x) < 0.9) {
+                        hx = 1; hy = 0; hz = 0;
+                    } else {
+                        hx = 0; hy = 1; hz = 0;
+                    }
+                    // Orthogonalize
+                    double dot = hx*radial_x + hy*radial_y + hz*radial_z;
+                    hx -= dot * radial_x;
+                    hy -= dot * radial_y;
+                    hz -= dot * radial_z;
+                    // Normalize
+                    h_mag = sqrt(hx*hx + hy*hy + hz*hz);
+                    if (h_mag > 1e-10) {
+                        hx /= h_mag;
+                        hy /= h_mag;
+                        hz /= h_mag;
+                    }
+                }
+                
+                h_eH_x[i] = hx;
+                h_eH_y[i] = hy;
+                h_eH_z[i] = hz;
+                
+                // Step 4: Compute e_phi = e_h × e_R (cross product)
+                // This is guaranteed perpendicular to both e_h and e_R
+                double phi_x = hy * radial_z - hz * radial_y;
+                double phi_y = hz * radial_x - hx * radial_z;
+                double phi_z = hx * radial_y - hy * radial_x;
+                
+                // Normalize e_phi (should already be unit length if e_h and e_R are orthonormal)
+                double phi_mag = sqrt(phi_x*phi_x + phi_y*phi_y + phi_z*phi_z);
+                
+                if (phi_mag > 1e-10) {
+                    phi_x /= phi_mag;
+                    phi_y /= phi_mag;
+                    phi_z /= phi_mag;
+                } else {
+                    // Degenerate case - shouldn't happen with proper orthogonalization
+                    phi_x = 0; phi_y = 0; phi_z = 1;
+                }
+                
+                h_ePhi_x[i] = phi_x;
+                h_ePhi_y[i] = phi_y;
+                h_ePhi_z[i] = phi_z;
+                
+                // ====================================================================
+                // VERIFICATION (optional, can remove after testing)
+                // ====================================================================
+                #ifdef DEBUG_BASIS_VECTORS
+                // Check orthonormality
+                double dot_R_phi = radial_x*phi_x + radial_y*phi_y + radial_z*phi_z;
+                double dot_R_h = radial_x*hx + radial_y*hy + radial_z*hz;
+                double dot_phi_h = phi_x*hx + phi_y*hy + phi_z*hz;
+                
+                if (fabs(dot_R_phi) > 1e-10 || fabs(dot_R_h) > 1e-10 || fabs(dot_phi_h) > 1e-10) {
+                    std::cout << "WARNING: Node " << i << " basis not orthonormal!" << std::endl;
+                    std::cout << "  e_R·e_phi = " << dot_R_phi << std::endl;
+                    std::cout << "  e_R·e_h = " << dot_R_h << std::endl;
+                    std::cout << "  e_phi·e_h = " << dot_phi_h << std::endl;
+                }
+                #endif
         
-        if (phi_mag > 1e-10) {
-            phi_x /= phi_mag;
-            phi_y /= phi_mag;
-            phi_z /= phi_mag;
-        } else {
-            if (fabs(radial_x) < 0.9) {
-                phi_x = 1; phi_y = 0; phi_z = 0;
-            } else {
-                phi_x = 0; phi_y = 1; phi_z = 0;
+        
+        // ============================================================================
+        // COMPLETE REPLACEMENT for the basis vector computation loop in 
+        // computeBasisVectorsWithDVSeparation() (lines ~294-415 in StrainTensor.cu)
+        //
+        // Replace the entire loop body with this:
+        // ============================================================================
+        
+        /*
+            for (int i = 0; i < N; ++i) {
+                double x = h_nodeLocX[i];
+                double y = h_nodeLocY[i];
+                double z = h_nodeLocZ[i];
+                
+                RegionType region = classifyNodeRegion(y, origins.DV_half_width);
+                
+                double radial_x, radial_y, radial_z;
+                double pathlength;
+                
+                if (region == REGION_DV) {
+                    h_nodes_in_DV[i] = 1;
+                    count_DV++;
+                    
+                    radial_x = 0;
+                    radial_y = (y >= 0) ? 1.0 : -1.0;
+                    radial_z = 0;
+                    
+                    double rho = fabs(y);
+                    pathlength = rho / origins.max_rho_DV;
+                    
+                } else if (region == REGION_DORSAL) {
+                    h_nodes_in_DV[i] = 0;
+                    count_dorsal++;
+                    
+                    double dx = x - origins.OD_x;
+                    double dy = y - origins.OD_y;
+                    double dz = z - origins.OD_z;
+                    double r = sqrt(dx*dx + dy*dy + dz*dz);
+                    
+                    if (r > 1e-10) {
+                        radial_x = dx / r;
+                        radial_y = dy / r;
+                        radial_z = dz / r;
+                    } else {
+                        radial_x = 0;
+                        radial_y = -1;
+                        radial_z = 0;
+                    }
+                    
+                    pathlength = r / origins.max_r_dorsal;
+                    
+                } else { // REGION_VENTRAL
+                    h_nodes_in_DV[i] = 0;
+                    count_ventral++;
+                    
+                    double dx = x - origins.OV_x;
+                    double dy = y - origins.OV_y;
+                    double dz = z - origins.OV_z;
+                    double r = sqrt(dx*dx + dy*dy + dz*dz);
+                    
+                    if (r > 1e-10) {
+                        radial_x = dx / r;
+                        radial_y = dy / r;
+                        radial_z = dz / r;
+                    } else {
+                        radial_x = 0;
+                        radial_y = 1;
+                        radial_z = 0;
+                    }
+                    
+                    pathlength = r / origins.max_r_ventral;
+                }
+                
+                // Store e_R (radial direction)
+                h_eR_x[i] = radial_x;
+                h_eR_y[i] = radial_y;
+                h_eR_z[i] = radial_z;
+                h_pathlength[i] = pathlength;
+                
+                // Compute raw surface normal
+                double nx = x - origins.center_x;
+                double ny = y - origins.center_y;
+                double nz = z - origins.center_z;
+                double n_mag = sqrt(nx*nx + ny*ny + nz*nz);
+                
+                if (n_mag > 1e-10) {
+                    nx /= n_mag;
+                    ny /= n_mag;
+                    nz /= n_mag;
+                } else {
+                    nx = 0; ny = 0; nz = 1;
+                }
+                
+                // GRAM-SCHMIDT: Orthogonalize e_h against e_R
+                double dot_h_R = nx*radial_x + ny*radial_y + nz*radial_z;
+                
+                double hx = nx - dot_h_R * radial_x;
+                double hy = ny - dot_h_R * radial_y;
+                double hz = nz - dot_h_R * radial_z;
+                
+                double h_mag = sqrt(hx*hx + hy*hy + hz*hz);
+                
+                if (h_mag > 1e-10) {
+                    hx /= h_mag;
+                    hy /= h_mag;
+                    hz /= h_mag;
+                } else {
+                    // e_h parallel to e_R - pick arbitrary perpendicular
+                    if (fabs(radial_x) < 0.9) {
+                        hx = 1; hy = 0; hz = 0;
+                    } else {
+                        hx = 0; hy = 1; hz = 0;
+                    }
+                    double dot = hx*radial_x + hy*radial_y + hz*radial_z;
+                    hx -= dot * radial_x;
+                    hy -= dot * radial_y;
+                    hz -= dot * radial_z;
+                    h_mag = sqrt(hx*hx + hy*hy + hz*hz);
+                    if (h_mag > 1e-10) {
+                        hx /= h_mag; hy /= h_mag; hz /= h_mag;
+                    }
+                }
+                
+                h_eH_x[i] = hx;
+                h_eH_y[i] = hy;
+                h_eH_z[i] = hz;
+                
+                // e_phi = e_h × e_R (perpendicular to both)
+                double phi_x = hy * radial_z - hz * radial_y;
+                double phi_y = hz * radial_x - hx * radial_z;
+                double phi_z = hx * radial_y - hy * radial_x;
+                
+                double phi_mag = sqrt(phi_x*phi_x + phi_y*phi_y + phi_z*phi_z);
+                if (phi_mag > 1e-10) {
+                    phi_x /= phi_mag;
+                    phi_y /= phi_mag;
+                    phi_z /= phi_mag;
+                }
+                
+                h_ePhi_x[i] = phi_x;
+                h_ePhi_y[i] = phi_y;
+                h_ePhi_z[i] = phi_z;
             }
-            double dot = phi_x*radial_x + phi_y*radial_y + phi_z*radial_z;
-            phi_x -= dot * radial_x;
-            phi_y -= dot * radial_y;
-            phi_z -= dot * radial_z;
-            phi_mag = sqrt(phi_x*phi_x + phi_y*phi_y + phi_z*phi_z);
-            if (phi_mag > 1e-10) {
-                phi_x /= phi_mag;
-                phi_y /= phi_mag;
-                phi_z /= phi_mag;
-            }
-        }
-        
-        h_ePhi_x[i] = phi_x;
-        h_ePhi_y[i] = phi_y;
-        h_ePhi_z[i] = phi_z;
+        */
     }
     
     // Print region statistics

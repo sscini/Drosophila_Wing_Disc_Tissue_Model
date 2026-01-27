@@ -600,8 +600,25 @@ void System::printTriangles() {
     }
 }
 
+// ============================================================================
+// FORCE DECOMPOSITION DIAGNOSTIC
+//
+// This code verifies that: Total Force = Linear Spring Force + Volume Force
+//
+// Add this code inside your relaxation loop, after Solve_Forces() is called,
+// or add it as a separate diagnostic function.
+//
+// The idea is to:
+// 1. Save the total forces (which are computed by Solve_Forces)
+// 2. Compute linear forces only and save them
+// 3. Compute volume forces only and save them  
+// 4. Verify that linear + volume = total
+// ============================================================================
 
-// Print net force on nodes along a radial line (?  0) from disc center to boundary
+// OPTION 1: Add this as a diagnostic function in System.cu
+// Call it once before the main relaxation loop to verify force computation
+
+
 void System::PrintForce() {
     // Copy device forces to host
     thrust::host_vector<double> h_fx = coordInfoVecs.nodeForceX;
@@ -825,6 +842,215 @@ void System::Solve_Forces()
    // PrintForce();
 };
 
+
+void System::verifyForceDecomposition() {
+    std::cout << "\n" << std::string(60, '=') << std::endl;
+    std::cout << "      FORCE DECOMPOSITION VERIFICATION" << std::endl;
+    std::cout << std::string(60, '=') << std::endl;
+    
+    int N = generalParams.maxNodeCount;
+    
+    // ========================================================================
+    // Step 1: Compute TOTAL forces (linear + volume)
+    // ========================================================================
+    
+    // Zero out force arrays
+    thrust::fill(coordInfoVecs.nodeForceX.begin(), coordInfoVecs.nodeForceX.end(), 0.0);
+    thrust::fill(coordInfoVecs.nodeForceY.begin(), coordInfoVecs.nodeForceY.end(), 0.0);
+    thrust::fill(coordInfoVecs.nodeForceZ.begin(), coordInfoVecs.nodeForceZ.end(), 0.0);
+    
+    // Compute all forces
+    Solve_Forces();  // This should compute both linear and volume forces
+    
+    // Copy total forces to host
+    thrust::host_vector<double> h_totalFx = coordInfoVecs.nodeForceX;
+    thrust::host_vector<double> h_totalFy = coordInfoVecs.nodeForceY;
+    thrust::host_vector<double> h_totalFz = coordInfoVecs.nodeForceZ;
+    
+    // Compute max total force
+    double maxTotalF = 0.0;
+    for (int i = 0; i < N; ++i) {
+        double F = sqrt(h_totalFx[i]*h_totalFx[i] + h_totalFy[i]*h_totalFy[i] + h_totalFz[i]*h_totalFz[i]);
+        maxTotalF = std::max(maxTotalF, F);
+    }
+    
+    std::cout << "\n--- Total Forces (from Solve_Forces) ---" << std::endl;
+    std::cout << "  Max |F_total| = " << maxTotalF << std::endl;
+    
+    // ========================================================================
+    // Step 2: Compute LINEAR forces only
+    // ========================================================================
+    
+    // Zero out force arrays
+    thrust::fill(coordInfoVecs.nodeForceX.begin(), coordInfoVecs.nodeForceX.end(), 0.0);
+    thrust::fill(coordInfoVecs.nodeForceY.begin(), coordInfoVecs.nodeForceY.end(), 0.0);
+    thrust::fill(coordInfoVecs.nodeForceZ.begin(), coordInfoVecs.nodeForceZ.end(), 0.0);
+    
+    // Compute linear spring forces only
+    ComputeLinearSprings(
+        generalParams,
+        coordInfoVecs,
+        linearSpringInfoVecs);
+    
+    // Copy linear forces to host
+    thrust::host_vector<double> h_linearFx = coordInfoVecs.nodeForceX;
+    thrust::host_vector<double> h_linearFy = coordInfoVecs.nodeForceY;
+    thrust::host_vector<double> h_linearFz = coordInfoVecs.nodeForceZ;
+    
+    // Compute max linear force
+    double maxLinearF = 0.0;
+    double sumLinearF = 0.0;
+    for (int i = 0; i < N; ++i) {
+        double F = sqrt(h_linearFx[i]*h_linearFx[i] + h_linearFy[i]*h_linearFy[i] + h_linearFz[i]*h_linearFz[i]);
+        maxLinearF = std::max(maxLinearF, F);
+        sumLinearF += F;
+    }
+    
+    std::cout << "\n--- Linear Spring Forces ---" << std::endl;
+    std::cout << "  Max |F_linear| = " << maxLinearF << std::endl;
+    std::cout << "  Avg |F_linear| = " << sumLinearF / N << std::endl;
+    
+    // ========================================================================
+    // Step 3: Compute VOLUME forces only
+    // ========================================================================
+    
+    // Zero out force arrays
+    thrust::fill(coordInfoVecs.nodeForceX.begin(), coordInfoVecs.nodeForceX.end(), 0.0);
+    thrust::fill(coordInfoVecs.nodeForceY.begin(), coordInfoVecs.nodeForceY.end(), 0.0);
+    thrust::fill(coordInfoVecs.nodeForceZ.begin(), coordInfoVecs.nodeForceZ.end(), 0.0);
+    
+    // Compute volume forces only
+    ComputeVolumeSprings(
+      		coordInfoVecs,
+          linearSpringInfoVecs,
+          capsidInfoVecs,
+          generalParams,
+          //auxVecs,
+          prismInfoVecs);
+    
+    // Copy volume forces to host
+    thrust::host_vector<double> h_volumeFx = coordInfoVecs.nodeForceX;
+    thrust::host_vector<double> h_volumeFy = coordInfoVecs.nodeForceY;
+    thrust::host_vector<double> h_volumeFz = coordInfoVecs.nodeForceZ;
+    
+    // Compute max volume force
+    double maxVolumeF = 0.0;
+    double sumVolumeF = 0.0;
+    for (int i = 0; i < N; ++i) {
+        double F = sqrt(h_volumeFx[i]*h_volumeFx[i] + h_volumeFy[i]*h_volumeFy[i] + h_volumeFz[i]*h_volumeFz[i]);
+        maxVolumeF = std::max(maxVolumeF, F);
+        sumVolumeF += F;
+    }
+    
+    std::cout << "\n--- Volume Forces ---" << std::endl;
+    std::cout << "  Max |F_volume| = " << maxVolumeF << std::endl;
+    std::cout << "  Avg |F_volume| = " << sumVolumeF / N << std::endl;
+    
+    // ========================================================================
+    // Step 4: Verify F_total = F_linear + F_volume
+    // ========================================================================
+    
+    std::cout << "\n--- Verification: F_total == F_linear + F_volume ---" << std::endl;
+    
+    double maxError = 0.0;
+    double sumError = 0.0;
+    int errorCount = 0;
+    
+    for (int i = 0; i < N; ++i) {
+        // Compute expected total = linear + volume
+        double expectedFx = h_linearFx[i] + h_volumeFx[i];
+        double expectedFy = h_linearFy[i] + h_volumeFy[i];
+        double expectedFz = h_linearFz[i] + h_volumeFz[i];
+        
+        // Compute error
+        double errX = fabs(h_totalFx[i] - expectedFx);
+        double errY = fabs(h_totalFy[i] - expectedFy);
+        double errZ = fabs(h_totalFz[i] - expectedFz);
+        double err = sqrt(errX*errX + errY*errY + errZ*errZ);
+        
+        maxError = std::max(maxError, err);
+        sumError += err;
+        
+        if (err > 1e-10) {
+            errorCount++;
+            if (errorCount <= 5) {  // Print first 5 errors
+                std::cout << "  Node " << i << ": error = " << err << std::endl;
+                std::cout << "    Total:    (" << h_totalFx[i] << ", " << h_totalFy[i] << ", " << h_totalFz[i] << ")" << std::endl;
+                std::cout << "    Linear:   (" << h_linearFx[i] << ", " << h_linearFy[i] << ", " << h_linearFz[i] << ")" << std::endl;
+                std::cout << "    Volume:   (" << h_volumeFx[i] << ", " << h_volumeFy[i] << ", " << h_volumeFz[i] << ")" << std::endl;
+                std::cout << "    Expected: (" << expectedFx << ", " << expectedFy << ", " << expectedFz << ")" << std::endl;
+            }
+        }
+    }
+    
+    std::cout << "\n  Max error:   " << maxError << std::endl;
+    std::cout << "  Avg error:   " << sumError / N << std::endl;
+    std::cout << "  Nodes with error > 1e-10: " << errorCount << std::endl;
+    
+    if (maxError < 1e-10) {
+        std::cout << "\n  ✓ VERIFIED: F_total = F_linear + F_volume" << std::endl;
+    } else {
+        std::cout << "\n  ✗ MISMATCH: Forces don't add up correctly!" << std::endl;
+        std::cout << "    Check if Solve_Forces() includes other force terms." << std::endl;
+    }
+    
+    // ========================================================================
+    // Step 5: Print sample forces for first few nodes
+    // ========================================================================
+    
+    std::cout << "\n--- Sample Forces (first 5 nodes) ---" << std::endl;
+    for (int i = 0; i < std::min(5, N); ++i) {
+        double totalMag = sqrt(h_totalFx[i]*h_totalFx[i] + h_totalFy[i]*h_totalFy[i] + h_totalFz[i]*h_totalFz[i]);
+        double linearMag = sqrt(h_linearFx[i]*h_linearFx[i] + h_linearFy[i]*h_linearFy[i] + h_linearFz[i]*h_linearFz[i]);
+        double volumeMag = sqrt(h_volumeFx[i]*h_volumeFx[i] + h_volumeFy[i]*h_volumeFy[i] + h_volumeFz[i]*h_volumeFz[i]);
+        
+        std::cout << "  Node " << i << ":" << std::endl;
+        std::cout << "    |F_total|  = " << totalMag << std::endl;
+        std::cout << "    |F_linear| = " << linearMag << std::endl;
+        std::cout << "    |F_volume| = " << volumeMag << std::endl;
+    }
+    
+    std::cout << std::string(60, '=') << std::endl << std::endl;
+    
+    // Reset forces to total for continued simulation
+    thrust::fill(coordInfoVecs.nodeForceX.begin(), coordInfoVecs.nodeForceX.end(), 0.0);
+    thrust::fill(coordInfoVecs.nodeForceY.begin(), coordInfoVecs.nodeForceY.end(), 0.0);
+    thrust::fill(coordInfoVecs.nodeForceZ.begin(), coordInfoVecs.nodeForceZ.end(), 0.0);
+    Solve_Forces();
+}
+
+
+// ============================================================================
+// OPTION 2: Simpler inline diagnostic (add inside relaxation loop)
+//
+// Add this code after Solve_Forces() to print force breakdown each iteration
+// ============================================================================
+
+/*
+// After Solve_Forces():
+{
+    // Get current total forces
+    thrust::host_vector<double> hfx = coordInfoVecs.nodeForceX;
+    thrust::host_vector<double> hfy = coordInfoVecs.nodeForceY;
+    thrust::host_vector<double> hfz = coordInfoVecs.nodeForceZ;
+    
+    double maxF = 0.0;
+    for (int i = 0; i < generalParams.maxNodeCount; i++) {
+        double F = sqrt(hfx[i]*hfx[i] + hfy[i]*hfy[i] + hfz[i]*hfz[i]);
+        maxF = std::max(maxF, F);
+    }
+    
+    // Get energies (these are computed in Solve_Forces or can be computed separately)
+    double linearE = ComputeLinearSpringEnergy(...);  // If you have this function
+    double volumeE = ComputeVolumeSpringEnergy(...);  // If you have this function
+    
+    std::cout << "Max|F|=" << maxF 
+              << " LinearE=" << linearE 
+              << " VolumeE=" << volumeE << std::endl;
+}
+*/
+
+
 // ============================================================================
 // FIXED solveSystem() function for System.cu
 // 
@@ -835,21 +1061,17 @@ void System::Solve_Forces()
 //
 // Replace your existing solveSystem() in System.cu with this version.
 // ============================================================================
-
-// Add this functor near the top of System.cu (after includes) if not already present:
-struct InterpolateRestLengthFunctor {
-    double t;  // interpolation parameter [0,1]
-    
-    __host__ __device__
-    InterpolateRestLengthFunctor(double _t) : t(_t) {}
-    
-    __device__
-    double operator()(const thrust::tuple<double, double>& lengths) {
-        double start_len = thrust::get<0>(lengths);
-        double final_len = thrust::get<1>(lengths);
-        return (1.0 - t) * start_len + t * final_len;
-    }
-};
+__global__ void k_interpolateRestLength(
+    int E,
+    const double* L_init,
+    const double* L_final,
+    double* L_rest,
+    double t)  // t in [0, 1]
+{
+    int eid = blockIdx.x * blockDim.x + threadIdx.x;
+    if (eid >= E) return;
+    L_rest[eid] = (1.0 - t) * L_init[eid] + t * L_final[eid];
+}
 
 // ============================================================================
 // solveSystem() - Main simulation driver
@@ -953,24 +1175,167 @@ void System::solveSystem()
     }
 
     // Use a small timestep for stability
-    generalParams.dt = 1e-7;
+    generalParams.dt = 0.01;
 
-    // Compute mesh center
+//    // Compute mesh center
+//    double cx = 0.0, cy = 0.0, cz = 0.0;
+//    int count = 0;
+//    for (int i = 0; i < generalParams.maxNodeCount; i++) {
+//        cx += coordInfoVecs.nodeLocX[i];
+//        cy += coordInfoVecs.nodeLocY[i];
+//        cz += coordInfoVecs.nodeLocZ[i];
+//        count++;
+//    }
+//    if (count > 0) {
+//        generalParams.centerX = cx / count;
+//        generalParams.centerY = cy / count;
+//        generalParams.centerZ = cz / count;
+//    }
+//    std::cout << "Mesh center: (" << generalParams.centerX << ", " 
+//              << generalParams.centerY << ", " << generalParams.centerZ << ")" << std::endl;
+              
+    // ============================================================================
+    // Computing Disc Radius for a Dome Mesh
+    // 
+    // The dome is a spherical cap. We need the PLANAR radius (in XY plane),
+    // not the spherical radius.
+    //
+    //                    * <- apex of dome
+    //                   /|\
+    //                  / | \
+    //                 /  |  \    <- spherical surface
+    //                /   |   \
+    //               /    |    \
+    //              *-----|-----*  <- base circle (disc radius = this distance)
+    //                    |
+    //              disc_radius
+    //
+    // Method: Find the maximum XY distance from the mesh center (in XY only)
+    // ============================================================================
+    
+    // PASTE THIS CODE in System.cu where you compute the mesh center
+    // (around line 959-973 in your current code)
+    
+    // ============================================================================
+    // Compute mesh center and disc radius
+    // ============================================================================
+    
+    // First, compute the centroid of all nodes
     double cx = 0.0, cy = 0.0, cz = 0.0;
-    int count = 0;
     for (int i = 0; i < generalParams.maxNodeCount; i++) {
         cx += coordInfoVecs.nodeLocX[i];
         cy += coordInfoVecs.nodeLocY[i];
         cz += coordInfoVecs.nodeLocZ[i];
-        count++;
     }
-    if (count > 0) {
-        generalParams.centerX = cx / count;
-        generalParams.centerY = cy / count;
-        generalParams.centerZ = cz / count;
+    cx /= generalParams.maxNodeCount;
+    cy /= generalParams.maxNodeCount;
+    cz /= generalParams.maxNodeCount;
+    
+    generalParams.centerX = cx;
+    generalParams.centerY = cy;
+    generalParams.centerZ = cz;
+    
+    std::cout << "Mesh centroid: (" << cx << ", " << cy << ", " << cz << ")" << std::endl;
+    
+    // ============================================================================
+    // Compute disc_radius = maximum PLANAR (XY) distance from center
+    // This is the radius of the dome's circular base
+    // ============================================================================
+    
+//    double max_planar_r = 0.0;
+//    double max_spherical_r = 0.0;
+//    
+//    for (int i = 0; i < generalParams.maxNodeCount; i++) {
+//        double dx = coordInfoVecs.nodeLocX[i] - cx;
+//        double dy = coordInfoVecs.nodeLocY[i] - cy;
+//        double dz = coordInfoVecs.nodeLocZ[i] - cz;
+//        
+//        // Planar distance (XY only) - this is what we want for disc_radius
+//        double planar_r = sqrt(dx*dx + dy*dy);
+//        max_planar_r = std::max(max_planar_r, planar_r);
+//        
+//        // Spherical distance (for comparison)
+//        double spherical_r = sqrt(dx*dx + dy*dy + dz*dz);
+//        max_spherical_r = std::max(max_spherical_r, spherical_r);
+//    }
+//    
+//    // Set the disc radius to the maximum planar distance
+//    generalParams.disc_radius = max_planar_r;
+//    
+//    std::cout << "Disc radius (planar XY): " << generalParams.disc_radius << std::endl;
+//    std::cout << "Sphere radius (3D):      " << max_spherical_r << std::endl;
+//    
+    
+    // ============================================================================
+    // ALTERNATIVE: Compute from boundary nodes only (more accurate for dome)
+    // 
+    // If your mesh has boundary nodes marked, you can compute disc_radius
+    // from those specifically, which might be more accurate.
+    // ============================================================================
+    
+    /*
+    double boundary_max_r = 0.0;
+    int boundary_count = 0;
+    
+    for (int i = 0; i < coordInfoVecs.num_edges; i++) {
+        // Check if this is a boundary edge (T1 == T2 in your code)
+        int T1 = coordInfoVecs.edges2Triangles_1[i];
+        int T2 = coordInfoVecs.edges2Triangles_2[i];
+        
+        if (T1 == T2) {
+            // This is a boundary edge - get its nodes
+            int n1 = coordInfoVecs.edges2Nodes_1[i];
+            int n2 = coordInfoVecs.edges2Nodes_2[i];
+            
+            // Compute planar distance for both nodes
+            double dx1 = coordInfoVecs.nodeLocX[n1] - cx;
+            double dy1 = coordInfoVecs.nodeLocY[n1] - cy;
+            double r1 = sqrt(dx1*dx1 + dy1*dy1);
+            
+            double dx2 = coordInfoVecs.nodeLocX[n2] - cx;
+            double dy2 = coordInfoVecs.nodeLocY[n2] - cy;
+            double r2 = sqrt(dx2*dx2 + dy2*dy2);
+            
+            boundary_max_r = std::max(boundary_max_r, std::max(r1, r2));
+            boundary_count++;
+        }
     }
-    std::cout << "Mesh center: (" << generalParams.centerX << ", " 
-              << generalParams.centerY << ", " << generalParams.centerZ << ")" << std::endl;
+    
+    if (boundary_count > 0) {
+        std::cout << "Disc radius from boundary nodes: " << boundary_max_r << std::endl;
+        generalParams.disc_radius = boundary_max_r;
+    }
+    
+    */
+    
+    // ============================================================================
+    // ALTERNATIVE 2: Use nodes in a specific layer (e.g., apical layer only)
+    //
+    // Since your dome has multiple layers, you might want to compute
+    // disc_radius from just one layer (e.g., the apical/top layer)
+    // ============================================================================
+    
+    
+    thrust::host_vector<int> h_layer = generalParams.nodes_in_upperhem;
+    int max_layer = *std::max_element(h_layer.begin(), h_layer.end());
+    
+    double apical_max_r = 0.0;
+    int apical_count = 0;
+    
+    for (int i = 0; i < generalParams.maxNodeCount; i++) {
+        if (h_layer[i] == max_layer) {  // Apical layer
+            double dx = coordInfoVecs.nodeLocX[i] - cx;
+            double dy = coordInfoVecs.nodeLocY[i] - cy;
+            double planar_r = sqrt(dx*dx + dy*dy);
+            apical_max_r = std::max(apical_max_r, planar_r);
+            apical_count++;
+        }
+    }
+    
+    std::cout << "Disc radius from apical layer (" << apical_count << " nodes): " 
+              << apical_max_r << std::endl;
+    generalParams.disc_radius = apical_max_r;
+    
 
     // Compute initial volume
     ComputeVolume(generalParams, coordInfoVecs, linearSpringInfoVecs, 
@@ -992,10 +1357,23 @@ void System::solveSystem()
                  linearSpringInfoVecs.edge_rest_length.begin());
 
     generalParams.tol = 1e-4;
-    int initial_relax_iters = relaxUntilConverged(*this);
-    
+    int initial_relax_iters = relaxUntilConvergedWithParams(
+    *this,
+    1.0,      // force_tolerance - stop when max|F| < 0.1
+    1e-3,     // displacement_tolerance (secondary)
+    1000,   // max_iterations
+    100);     // print every 1000 iterations
+//    storage->print_VTK_File();
+//    
+//    // After initial_relax_iters
+//    coordInfoVecs.nodeLocX[0] += 1.0;  // Perturb node 0
+//    cudaDeviceSynchronize();
+//    storage->print_VTK_File();
+//    int initial_relax_iters_1 = relaxUntilConverged(*this); 
+//    storage->print_VTK_File();
     double E_initial = linearSpringInfoVecs.linear_spring_energy;
-    std::cout << "Initial relaxation: " << initial_relax_iters << " iterations" << std::endl;
+    std::cout << "Initial relaxation before node 0 pulling : " << initial_relax_iters << " iterations" << std::endl;
+   // std::cout << "Initial relaxation after node 0 pulling : " << initial_relax_iters_1 << " iterations" << std::endl;
     std::cout << "Initial energy: " << E_initial << std::endl;
 
     storage->print_VTK_File();
@@ -1024,6 +1402,7 @@ void System::solveSystem()
     if (R < 1e-10) R = 1.0;
     std::cout << "Detected mesh radius R = " << R << std::endl;
     
+    
     // Compute basis vectors with DV separation
     // This will:
     // 1. Classify nodes into DV, dorsal, and ventral regions
@@ -1032,14 +1411,219 @@ void System::solveSystem()
     // 4. Set up pathlengths for lambda interpolation
     StrainTensorGPU::computeBasisVectorsWithDVSeparation(
         generalParams, coordInfoVecs, theta_DV, R);
-    
+      // Build vertex-level lambda
+        LambdaField lambda;
+        
+        // ====================================================================
+        // FIX: Copy basis vectors from CoordInfoVecs to LambdaField
+        // The basis vectors were computed by computeBasisVectorsWithDVSeparation()
+        // and stored in coordInfoVecs, but buildVertexLambda() reads from lambda.
+        // ====================================================================
+        {
+            int N = generalParams.maxNodeCount;
+            
+            // Resize the lambda field
+            lambda.resize(N);
+            
+            // Copy basis vectors from CoordInfoVecs to LambdaField
+            thrust::host_vector<double> h_eR_x = coordInfoVecs.e_R_x;
+            thrust::host_vector<double> h_eR_y = coordInfoVecs.e_R_y;
+            thrust::host_vector<double> h_eR_z = coordInfoVecs.e_R_z;
+            
+            thrust::host_vector<double> h_ePhi_x = coordInfoVecs.e_phi_x;
+            thrust::host_vector<double> h_ePhi_y = coordInfoVecs.e_phi_y;
+            thrust::host_vector<double> h_ePhi_z = coordInfoVecs.e_phi_z;
+            
+            thrust::host_vector<double> h_eH_x = coordInfoVecs.e_h_x;
+            thrust::host_vector<double> h_eH_y = coordInfoVecs.e_h_y;
+            thrust::host_vector<double> h_eH_z = coordInfoVecs.e_h_z;
+            
+            // Create host vectors for CVec3 basis vectors
+            thrust::host_vector<CVec3> h_e_R(N);
+            thrust::host_vector<CVec3> h_e_phi(N);
+            thrust::host_vector<CVec3> h_e_h(N);
+            
+            for (int i = 0; i < N; ++i) {
+                h_e_R[i] = thrust::make_tuple(h_eR_x[i], h_eR_y[i], h_eR_z[i]);
+                h_e_phi[i] = thrust::make_tuple(h_ePhi_x[i], h_ePhi_y[i], h_ePhi_z[i]);
+                h_e_h[i] = thrust::make_tuple(h_eH_x[i], h_eH_y[i], h_eH_z[i]);
+            }
+            
+            // Copy to device (LambdaField)
+            lambda.e_R = h_e_R;
+            lambda.e_phi = h_e_phi;
+            lambda.e_h = h_e_h;
+            
+            std::cout << "Basis vectors copied to LambdaField. N = " << N << std::endl;
+        }
+        
+        // FIX: Ensure lambda_aniso_edge_outDV = 1.0 (your XML might have 0.5)
+        generalParams.lambda_aniso_edge_outDV = 1.2;
+        double frac = 1.0;   // full-field application per stage
+        // NOW build the lambda field (it will use the basis vectors we just copied)
+        StrainTensorGPU::buildVertexLambda(generalParams, coordInfoVecs, lambda, frac);
+        
+        // ============================================================================
+        // DIAGNOSTIC: Check if basis vectors are orthonormal and tensor is identity
+        //
+        // Add this code AFTER buildVertexLambda() and BEFORE updateEdgeRestLengths()
+        // to verify the strain tensor is correct.
+        // ============================================================================
+        
+        {
+            std::cout << "\n" << std::string(60, '=') << std::endl;
+            std::cout << "      BASIS VECTOR AND TENSOR DIAGNOSTICS" << std::endl;
+            std::cout << std::string(60, '=') << std::endl;
+            
+            int N = generalParams.maxNodeCount;
+            
+            // Copy basis vectors from LambdaField to host
+            thrust::host_vector<CVec3> h_e_R = lambda.e_R;
+            thrust::host_vector<CVec3> h_e_phi = lambda.e_phi;
+            thrust::host_vector<CVec3> h_e_h = lambda.e_h;
+            thrust::host_vector<Mat_3x3> h_lam_alpha = lambda.lam_alpha;
+            
+            // Check first few nodes
+            int num_to_check = std::min(5, N);
+            
+            std::cout << "\n--- Checking first " << num_to_check << " nodes ---" << std::endl;
+            
+            double max_non_orthonormal = 0.0;
+            double max_tensor_error = 0.0;
+            
+            for (int i = 0; i < num_to_check; ++i) {
+                double eR_x = thrust::get<0>(h_e_R[i]);
+                double eR_y = thrust::get<1>(h_e_R[i]);
+                double eR_z = thrust::get<2>(h_e_R[i]);
+                
+                double ePhi_x = thrust::get<0>(h_e_phi[i]);
+                double ePhi_y = thrust::get<1>(h_e_phi[i]);
+                double ePhi_z = thrust::get<2>(h_e_phi[i]);
+                
+                double eH_x = thrust::get<0>(h_e_h[i]);
+                double eH_y = thrust::get<1>(h_e_h[i]);
+                double eH_z = thrust::get<2>(h_e_h[i]);
+                
+                // Check magnitudes (should be 1)
+                double mag_R = sqrt(eR_x*eR_x + eR_y*eR_y + eR_z*eR_z);
+                double mag_phi = sqrt(ePhi_x*ePhi_x + ePhi_y*ePhi_y + ePhi_z*ePhi_z);
+                double mag_h = sqrt(eH_x*eH_x + eH_y*eH_y + eH_z*eH_z);
+                
+                // Check orthogonality (dot products should be 0)
+                double dot_R_phi = eR_x*ePhi_x + eR_y*ePhi_y + eR_z*ePhi_z;
+                double dot_R_h = eR_x*eH_x + eR_y*eH_y + eR_z*eH_z;
+                double dot_phi_h = ePhi_x*eH_x + ePhi_y*eH_y + ePhi_z*eH_z;
+                
+                std::cout << "\nNode " << i << ":" << std::endl;
+                std::cout << "  e_R   = (" << eR_x << ", " << eR_y << ", " << eR_z << "), |e_R| = " << mag_R << std::endl;
+                std::cout << "  e_phi = (" << ePhi_x << ", " << ePhi_y << ", " << ePhi_z << "), |e_phi| = " << mag_phi << std::endl;
+                std::cout << "  e_h   = (" << eH_x << ", " << eH_y << ", " << eH_z << "), |e_h| = " << mag_h << std::endl;
+                std::cout << "  Orthogonality: e_R·e_phi=" << dot_R_phi << ", e_R·e_h=" << dot_R_h << ", e_phi·e_h=" << dot_phi_h << std::endl;
+                
+                // Check tensor (should be identity when lambda=1)
+                Mat_3x3& L = h_lam_alpha[i];
+                CVec3 row0 = thrust::get<0>(L);
+                CVec3 row1 = thrust::get<1>(L);
+                CVec3 row2 = thrust::get<2>(L);
+                
+                std::cout << "  Tensor L = [" << std::endl;
+                std::cout << "    [" << thrust::get<0>(row0) << ", " << thrust::get<1>(row0) << ", " << thrust::get<2>(row0) << "]" << std::endl;
+                std::cout << "    [" << thrust::get<0>(row1) << ", " << thrust::get<1>(row1) << ", " << thrust::get<2>(row1) << "]" << std::endl;
+                std::cout << "    [" << thrust::get<0>(row2) << ", " << thrust::get<1>(row2) << ", " << thrust::get<2>(row2) << "]" << std::endl;
+                std::cout << "  ]" << std::endl;
+                
+                // Error from identity
+                double err_00 = fabs(thrust::get<0>(row0) - 1.0);
+                double err_11 = fabs(thrust::get<1>(row1) - 1.0);
+                double err_22 = fabs(thrust::get<2>(row2) - 1.0);
+                double err_01 = fabs(thrust::get<1>(row0));
+                double err_02 = fabs(thrust::get<2>(row0));
+                double err_10 = fabs(thrust::get<0>(row1));
+                double err_12 = fabs(thrust::get<2>(row1));
+                double err_20 = fabs(thrust::get<0>(row2));
+                double err_21 = fabs(thrust::get<1>(row2));
+                
+                double max_diag_err = std::max({err_00, err_11, err_22});
+                double max_offdiag_err = std::max({err_01, err_02, err_10, err_12, err_20, err_21});
+                
+                std::cout << "  Error from Identity: diag_err=" << max_diag_err << ", offdiag_err=" << max_offdiag_err << std::endl;
+                
+                max_tensor_error = std::max(max_tensor_error, std::max(max_diag_err, max_offdiag_err));
+                max_non_orthonormal = std::max({max_non_orthonormal, fabs(mag_R-1), fabs(mag_phi-1), fabs(mag_h-1),
+                                                fabs(dot_R_phi), fabs(dot_R_h), fabs(dot_phi_h)});
+            }
+            
+            // Check ALL nodes for overall statistics
+            std::cout << "\n--- Checking ALL " << N << " nodes ---" << std::endl;
+            
+            double sum_mag_R = 0, sum_mag_phi = 0, sum_mag_h = 0;
+            double min_mag_R = 1e10, min_mag_phi = 1e10, min_mag_h = 1e10;
+            double max_mag_R = 0, max_mag_phi = 0, max_mag_h = 0;
+            int count_zero_basis = 0;
+            
+            for (int i = 0; i < N; ++i) {
+                double eR_x = thrust::get<0>(h_e_R[i]);
+                double eR_y = thrust::get<1>(h_e_R[i]);
+                double eR_z = thrust::get<2>(h_e_R[i]);
+                
+                double ePhi_x = thrust::get<0>(h_e_phi[i]);
+                double ePhi_y = thrust::get<1>(h_e_phi[i]);
+                double ePhi_z = thrust::get<2>(h_e_phi[i]);
+                
+                double eH_x = thrust::get<0>(h_e_h[i]);
+                double eH_y = thrust::get<1>(h_e_h[i]);
+                double eH_z = thrust::get<2>(h_e_h[i]);
+                
+                double mag_R = sqrt(eR_x*eR_x + eR_y*eR_y + eR_z*eR_z);
+                double mag_phi = sqrt(ePhi_x*ePhi_x + ePhi_y*ePhi_y + ePhi_z*ePhi_z);
+                double mag_h = sqrt(eH_x*eH_x + eH_y*eH_y + eH_z*eH_z);
+                
+                sum_mag_R += mag_R;
+                sum_mag_phi += mag_phi;
+                sum_mag_h += mag_h;
+                
+                min_mag_R = std::min(min_mag_R, mag_R);
+                min_mag_phi = std::min(min_mag_phi, mag_phi);
+                min_mag_h = std::min(min_mag_h, mag_h);
+                
+                max_mag_R = std::max(max_mag_R, mag_R);
+                max_mag_phi = std::max(max_mag_phi, mag_phi);
+                max_mag_h = std::max(max_mag_h, mag_h);
+                
+                if (mag_R < 1e-10 || mag_phi < 1e-10 || mag_h < 1e-10) {
+                    count_zero_basis++;
+                }
+            }
+            
+            std::cout << "  |e_R|:   min=" << min_mag_R << ", max=" << max_mag_R << ", avg=" << sum_mag_R/N << std::endl;
+            std::cout << "  |e_phi|: min=" << min_mag_phi << ", max=" << max_mag_phi << ", avg=" << sum_mag_phi/N << std::endl;
+            std::cout << "  |e_h|:   min=" << min_mag_h << ", max=" << max_mag_h << ", avg=" << sum_mag_h/N << std::endl;
+            std::cout << "  Nodes with zero-magnitude basis vectors: " << count_zero_basis << std::endl;
+            
+            if (count_zero_basis > 0) {
+                std::cout << "\n*** WARNING: " << count_zero_basis << " nodes have zero basis vectors! ***" << std::endl;
+                std::cout << "    This will cause incorrect strain calculation!" << std::endl;
+            }
+            
+            if (max_tensor_error > 0.01) {
+                std::cout << "\n*** WARNING: Tensor deviates from identity by " << max_tensor_error << " ***" << std::endl;
+                std::cout << "    With lambda=1, tensor should be identity!" << std::endl;
+            }
+            
+            std::cout << std::string(60, '=') << std::endl << std::endl;
+        }
+
+        // Update rest lengths (initial_length → final_length)
+        //int layerflag = 0;
+        //StrainTensorGPU::updateEdgeRestLengths(coordInfoVecs, generalParams, lambda, linearSpringInfoVecs, layerflag);
+
 //    // Copy DV classification to GeneralParams for use in buildVertexLambda
 //    generalParams.nodes_in_DV.resize(hostSetInfoVecs.nodes_in_DV.size());
 //    thrust::copy(hostSetInfoVecs.nodes_in_DV.begin(), 
 //                 hostSetInfoVecs.nodes_in_DV.end(),
 //                 generalParams.nodes_in_DV.begin());
     // Compute basis vectors ONCE using initial geometry
-    LambdaField lambda;
+    //LambdaField lambda;
    // double theta_DV = 0.1931;  // DV boundary angle (radians)
     //double R = 1.0;            // Will be auto-detected from mesh
     
@@ -1050,7 +1634,7 @@ void System::solveSystem()
     // ============================================
 
     int stages = 2;//generalParams.Tf;
-    double frac = 1.0;   // full-field application per stage
+    
     linearSpringInfoVecs.edge_rest_length = linearSpringInfoVecs.edge_initial_length; // copy initial lengths to the rest length vector. 
 
     for (int stage = 0; stage < stages; stage++)
@@ -1069,19 +1653,214 @@ void System::solveSystem()
 //        generalParams.lambda_aniso_edge_inDV   = generalParams.lambda_aniso_edge_inDV_v[stage];
 
         // Build vertex-level lambda
-        LambdaField lambda;
-        StrainTensorGPU::buildVertexLambda(generalParams, coordInfoVecs, lambda, frac);
+        //LambdaField lambda;
+        //StrainTensorGPU::buildVertexLambda(generalParams, coordInfoVecs, lambda, frac);
 
         // Update rest lengths (initial_length → final_length)
         int layerflag = 0;   // 0 = basal layer, 
                              // 1 - N = Body layers,
                              // N+1 = Apical layer,
                              // -1 = vertical layer
-        StrainTensorGPU::updateEdgeRestLengths(coordInfoVecs, generalParams, lambda, linearSpringInfoVecs, layerflag);
+        // ============================================================================
+        // DIAGNOSTIC CODE: Print Lambda Values and Strain Statistics
+        // 
+        // Paste this code BEFORE the call to StrainTensorGPU::updateEdgeRestLengths()
+        // in your System.cu solveSystem() function.
+        //
+        // This will print:
+        //   1. Lambda parameter values being used
+        //   2. Strain statistics (min, max, average) for the computed rest lengths
+        // ============================================================================
+        
+        
+        {
+            std::cout << "\n" << std::string(60, '=') << std::endl;
+            std::cout << "      LAMBDA VALUES AND STRAIN DIAGNOSTICS" << std::endl;
+            std::cout << std::string(60, '=') << std::endl;
+            
+           // generalParams.lambda_aniso_edge_outDV = 1.2;
+            
+            // Print lambda parameter values
+            std::cout << "\n--- Lambda Parameters (from GeneralParams) ---" << std::endl;
+            std::cout << "Outside DV Region:" << std::endl;
+            std::cout << "  lambda_iso_center_outDV   = " << generalParams.lambda_iso_center_outDV << std::endl;
+            std::cout << "  lambda_iso_edge_outDV     = " << generalParams.lambda_iso_edge_outDV << std::endl;
+            std::cout << "  lambda_aniso_center_outDV = " << generalParams.lambda_aniso_center_outDV << std::endl;
+            std::cout << "  lambda_aniso_edge_outDV   = " << generalParams.lambda_aniso_edge_outDV << std::endl;
+            
+            std::cout << "Inside DV Region:" << std::endl;
+            std::cout << "  lambda_iso_center_inDV    = " << generalParams.lambda_iso_center_inDV << std::endl;
+            std::cout << "  lambda_iso_edge_inDV      = " << generalParams.lambda_iso_edge_inDV << std::endl;
+            std::cout << "  lambda_aniso_center_inDV  = " << generalParams.lambda_aniso_center_inDV << std::endl;
+            std::cout << "  lambda_aniso_edge_inDV    = " << generalParams.lambda_aniso_edge_inDV << std::endl;
+            
+            std::cout << "\nGeometry Parameters:" << std::endl;
+            std::cout << "  disc_radius = " << generalParams.disc_radius << std::endl;
+            std::cout << "  centerX     = " << generalParams.centerX << std::endl;
+            std::cout << "  centerY     = " << generalParams.centerY << std::endl;
+            std::cout << "  centerZ     = " << generalParams.centerZ << std::endl;
+            
+            // Print per-vertex lambda field statistics (if lambda field has been built)
+            if (lambda.lam_rr.size() > 0) {
+                thrust::host_vector<double> h_lam_rr = lambda.lam_rr;
+                thrust::host_vector<double> h_lam_pp = lambda.lam_pp;
+                thrust::host_vector<double> h_lam_ss = lambda.lam_ss;
+                thrust::host_vector<double> h_rho = generalParams.rho;
+                
+                double min_rr = 1e10, max_rr = -1e10, sum_rr = 0;
+                double min_pp = 1e10, max_pp = -1e10, sum_pp = 0;
+                double min_ss = 1e10, max_ss = -1e10, sum_ss = 0;
+                double min_rho = 1e10, max_rho = -1e10, sum_rho = 0;
+                
+                int N = h_lam_rr.size();
+                for (int i = 0; i < N; i++) {
+                    min_rr = std::min(min_rr, h_lam_rr[i]);
+                    max_rr = std::max(max_rr, h_lam_rr[i]);
+                    sum_rr += h_lam_rr[i];
+                    
+                    min_pp = std::min(min_pp, h_lam_pp[i]);
+                    max_pp = std::max(max_pp, h_lam_pp[i]);
+                    sum_pp += h_lam_pp[i];
+                    
+                    min_ss = std::min(min_ss, h_lam_ss[i]);
+                    max_ss = std::max(max_ss, h_lam_ss[i]);
+                    sum_ss += h_lam_ss[i];
+                    
+                    if (h_rho.size() > i) {
+                        min_rho = std::min(min_rho, h_rho[i]);
+                        max_rho = std::max(max_rho, h_rho[i]);
+                        sum_rho += h_rho[i];
+                    }
+                }
+                
+                std::cout << "\n--- Per-Vertex Lambda Field Statistics (N = " << N << " vertices) ---" << std::endl;
+                std::cout << "  lambda_rr (radial):       min=" << min_rr << ", max=" << max_rr << ", avg=" << sum_rr/N << std::endl;
+                std::cout << "  lambda_pp (circumfer.):   min=" << min_pp << ", max=" << max_pp << ", avg=" << sum_pp/N << std::endl;
+                std::cout << "  lambda_ss (thickness):    min=" << min_ss << ", max=" << max_ss << ", avg=" << sum_ss/N << std::endl;
+                std::cout << "  rho (normalized radius):  min=" << min_rho << ", max=" << max_rho << ", avg=" << sum_rho/N << std::endl;
+            }
+            
+            std::cout << std::string(60, '=') << std::endl;
+        }
+        
+        // --- NOW CALL updateEdgeRestLengths() ---
+
+          StrainTensorGPU::updateEdgeRestLengths(coordInfoVecs, generalParams, lambda, linearSpringInfoVecs, layerflag);
+
+          // --- PASTE THIS BLOCK AFTER updateEdgeRestLengths() ---
+          
+          {
+              std::cout << "\n" << std::string(60, '=') << std::endl;
+              std::cout << "      STRAIN STATISTICS (After Rest Length Update)" << std::endl;
+              std::cout << std::string(60, '=') << std::endl;
+              
+              // Copy device vectors to host
+              thrust::host_vector<double> h_init = linearSpringInfoVecs.edge_initial_length;
+              thrust::host_vector<double> h_final = linearSpringInfoVecs.edge_final_length;
+              thrust::host_vector<double> h_rest = linearSpringInfoVecs.edge_rest_length;
+              thrust::host_vector<int> h_layer = generalParams.edges_in_upperhem;
+              
+              int E = coordInfoVecs.num_edges;
+              
+              // Compute strain = (L_final - L_init) / L_init for each edge
+              double min_strain = 1e10, max_strain = -1e10, sum_strain = 0;
+              double min_ratio = 1e10, max_ratio = -1e10, sum_ratio = 0;
+              int count_positive_strain = 0;
+              int count_negative_strain = 0;
+              int count_zero_strain = 0;
+              int count_horizontal = 0;
+              int count_vertical = 0;
+              
+              // Per-layer statistics
+              std::map<int, std::vector<double>> strain_by_layer;
+              
+              for (int e = 0; e < E; e++) {
+                  double L0 = h_init[e];
+                  double Lf = h_final[e];
+                  int layer = h_layer[e];
+                  
+                  if (L0 > 1e-10) {
+                      double strain = (Lf - L0) / L0;  // Engineering strain
+                      double ratio = Lf / L0;           // Stretch ratio
+                      
+                      min_strain = std::min(min_strain, strain);
+                      max_strain = std::max(max_strain, strain);
+                      sum_strain += strain;
+                      
+                      min_ratio = std::min(min_ratio, ratio);
+                      max_ratio = std::max(max_ratio, ratio);
+                      sum_ratio += ratio;
+                      
+                      if (strain > 1e-9) count_positive_strain++;
+                      else if (strain < -1e-9) count_negative_strain++;
+                      else count_zero_strain++;
+                      
+                      if (layer == -1) count_vertical++;
+                      else count_horizontal++;
+                      
+                      strain_by_layer[layer].push_back(strain);
+                  }
+              }
+              
+              std::cout << "\n--- Overall Strain Statistics (E = " << E << " edges) ---" << std::endl;
+              std::cout << "  Engineering Strain = (L_final - L_init) / L_init" << std::endl;
+              std::cout << "  Min strain:  " << min_strain << " (" << min_strain*100 << "%)" << std::endl;
+              std::cout << "  Max strain:  " << max_strain << " (" << max_strain*100 << "%)" << std::endl;
+              std::cout << "  Avg strain:  " << sum_strain/E << " (" << (sum_strain/E)*100 << "%)" << std::endl;
+              
+              std::cout << "\n--- Stretch Ratio Statistics ---" << std::endl;
+              std::cout << "  Stretch Ratio = L_final / L_init" << std::endl;
+              std::cout << "  Min ratio:   " << min_ratio << std::endl;
+              std::cout << "  Max ratio:   " << max_ratio << std::endl;
+              std::cout << "  Avg ratio:   " << sum_ratio/E << std::endl;
+              
+              std::cout << "\n--- Edge Classification ---" << std::endl;
+              std::cout << "  Edges with positive strain (tension):    " << count_positive_strain << std::endl;
+              std::cout << "  Edges with negative strain (compress.):  " << count_negative_strain << std::endl;
+              std::cout << "  Edges with zero strain:                  " << count_zero_strain << std::endl;
+              std::cout << "  Horizontal edges (layer >= 0):           " << count_horizontal << std::endl;
+              std::cout << "  Vertical edges (layer == -1):            " << count_vertical << std::endl;
+              
+              std::cout << "\n--- Strain by Layer ---" << std::endl;
+              for (auto& kv : strain_by_layer) {
+                  int layer = kv.first;
+                  std::vector<double>& strains = kv.second;
+                  
+                  double layer_min = 1e10, layer_max = -1e10, layer_sum = 0;
+                  for (double s : strains) {
+                      layer_min = std::min(layer_min, s);
+                      layer_max = std::max(layer_max, s);
+                      layer_sum += s;
+                  }
+                  
+                  std::string layer_name;
+                  if (layer == -1) layer_name = "Vertical";
+                  else if (layer == 0) layer_name = "Basal";
+                  else if (layer == 4) layer_name = "Apical";  // Adjust if your max layer differs
+                  else layer_name = "Body " + std::to_string(layer);
+                  
+                  std::cout << "  Layer " << layer << " (" << layer_name << ", n=" << strains.size() << "): "
+                            << "min=" << layer_min*100 << "%, max=" << layer_max*100 << "%, avg=" << (layer_sum/strains.size())*100 << "%" 
+                            << std::endl;
+              }
+              
+              // Check if strain is actually being applied
+              if (max_strain < 1e-9 && min_strain > -1e-9) {
+                  std::cout << "\n*** WARNING: No strain detected! ***" << std::endl;
+                  std::cout << "    Possible causes:" << std::endl;
+                  std::cout << "    1. All lambda values = 1.0 (no growth)" << std::endl;
+                  std::cout << "    2. Strain tensor not being computed correctly" << std::endl;
+                  std::cout << "    3. Edge layer flags preventing strain application" << std::endl;
+              }
+              
+              std::cout << std::string(60, '=') << std::endl << std::endl;
+          }
+
+        //StrainTensorGPU::updateEdgeRestLengths(coordInfoVecs, generalParams, lambda, linearSpringInfoVecs, layerflag);
 
         // Relaxation parameters
-        generalParams.tol = 1e-5;
-        int Nsteps = 100000; // this should be equal to the inverse of tolerance
+        //generalParams.tol = 1e-4;
+        int Nsteps = 100; // this should be equal to the inverse of tolerance
 
         // ============================================
         //     GRADIENT RELAXATION LOOP
@@ -1089,15 +1868,31 @@ void System::solveSystem()
         
         for (int iter = 0; iter < Nsteps; iter++)
         {
-            // linearly increment rest lengths if doing time sweep
-            for (int e = 0; e < coordInfoVecs.num_edges; e++) {
-                double dl = (linearSpringInfoVecs.edge_final_length[e] -
-                             linearSpringInfoVecs.edge_initial_length[e]) / double(Nsteps);
-                linearSpringInfoVecs.edge_rest_length[e] += dl;
-            }
-
-            int k = relaxUntilConverged(*this);
-
+//            // linearly increment rest lengths if doing time sweep
+//            for (int e = 0; e < coordInfoVecs.num_edges; e++) {
+//                double dl = (linearSpringInfoVecs.edge_final_length[e] -
+//                             linearSpringInfoVecs.edge_initial_length[e]) / double(Nsteps);
+//                linearSpringInfoVecs.edge_rest_length[e] += dl;
+//            }
+            double t = (iter + 1.0) / double(Nsteps);
+            dim3 grid((coordInfoVecs.num_edges + 255) / 256);
+            k_interpolateRestLength<<<grid, 256>>>(
+                coordInfoVecs.num_edges,
+                thrust::raw_pointer_cast(linearSpringInfoVecs.edge_initial_length.data()),
+                thrust::raw_pointer_cast(linearSpringInfoVecs.edge_final_length.data()),
+                thrust::raw_pointer_cast(linearSpringInfoVecs.edge_rest_length.data()),
+                t);
+            cudaDeviceSynchronize();
+            // In System.cu:
+            int k = relaxUntilConvergedWithParams(
+                *this,
+                1.0,      // force_tolerance - stop when max|F| < 0.1
+                1e-4,     // displacement_tolerance (secondary)
+                1000,   // max_iterations
+                10);    // print every 1000 iterations
+            
+            verifyForceDecomposition();
+            
             double E = linearSpringInfoVecs.linear_spring_energy+generalParams.volume_energy;
             std::cout << "Relax iter " << iter 
                       << " Stage " << stage 
@@ -1108,7 +1903,7 @@ void System::solveSystem()
                       << " | Volume = " << generalParams.current_total_volume
                       << " | Steps = " << k << std::endl;
 
-            if (iter % 1000 == 0)
+            if (iter % 5 == 0)
                 storage->print_VTK_File();
                 
 //            BuildPrismsFromLayerFlags(

@@ -558,16 +558,16 @@ struct GeneralParams{
 
 
   // Strain field (lambda) values in the outDV region at different stages of eversion.
-  double lambda_iso_center_outDV = -0.12406004; //   wl3-0hAPF (-0.12406004) | wl3-2hAPF (-0.29431527) | wl3-4hAPF (-0.20050286)
-  double lambda_iso_edge_outDV = 1.20789496; //      wl3-0hAPF ( 1.20789496) | wl3-2hAPF ( 1.44256030) | wl3-4hAPF ( 1.43479468)
-  double lambda_aniso_center_outDV = -0.06172103;//  wl3-0hAPF (-0.06172103) | wl3-2hAPF ( 0.21823128) | wl3-4hAPF ( 0.29444448)
-  double lambda_aniso_edge_outDV = 1.01053997; //    wl3-0hAPF ( 1.01053997) | wl3-2hAPF ( 0.98874841) | wl3-4hAPF ( 0.97652462)
+  double lambda_iso_center_outDV = 1.2; //   wl3-0hAPF (-0.12406004) | wl3-2hAPF (-0.29431527) | wl3-4hAPF (-0.20050286)
+  double lambda_iso_edge_outDV = 1.0; //      wl3-0hAPF ( 1.20789496) | wl3-2hAPF ( 1.44256030) | wl3-4hAPF ( 1.43479468)
+  double lambda_aniso_center_outDV = 1.2;//  wl3-0hAPF (-0.06172103) | wl3-2hAPF ( 0.21823128) | wl3-4hAPF ( 0.29444448)
+  double lambda_aniso_edge_outDV = 1.0; //    wl3-0hAPF ( 1.01053997) | wl3-2hAPF ( 0.98874841) | wl3-4hAPF ( 0.97652462)
   
   // Strain field (lambda) values in inDV region at different stages of eversion. 
-  double lambda_iso_center_inDV = -0.09848994; //    wl3-0hAPF (-0.09848994) | wl3-2hAPF (-0.11692544) | wl3-4hAPF (-0.06151876)
-  double lambda_iso_edge_inDV = 1.18401136;//       wl3-0hAPF ( 1.18401136) | wl3-2hAPF ( 1.21007540) | wl3-4hAPF ( 1.47472744)
-  double lambda_aniso_center_inDV = -0.12904887; //  wl3-0hAPF (-0.12904887) | wl3-2hAPF (-0.21271504) | wl3-4hAPF (-0.30567972)
-  double lambda_aniso_edge_inDV = 1.03128453; //    wl3-0hAPF ( 1.03128453) | wl3-2hAPF ( 1.24178074) | wl3-4hAPF ( 1.29370391)
+  double lambda_iso_center_inDV = 1.0; //    wl3-0hAPF (-0.09848994) | wl3-2hAPF (-0.11692544) | wl3-4hAPF (-0.06151876)
+  double lambda_iso_edge_inDV = 1.0;//       wl3-0hAPF ( 1.18401136) | wl3-2hAPF ( 1.21007540) | wl3-4hAPF ( 1.47472744)
+  double lambda_aniso_center_inDV = 1.0; //  wl3-0hAPF (-0.12904887) | wl3-2hAPF (-0.21271504) | wl3-4hAPF (-0.30567972)
+  double lambda_aniso_edge_inDV = 1.0; //    wl3-0hAPF ( 1.03128453) | wl3-2hAPF ( 1.24178074) | wl3-4hAPF ( 1.29370391)
   
   double disc_radius;//= 77.66; // manually input radius for each of the discs you're computing. 
   double sphere_R;
@@ -645,6 +645,8 @@ public:
 	void setExtras();
 
 	void setBucketScheme();
+ 
+  void verifyForceDecomposition();
   
 	//void Solve_Forces(const gsl_vector* temp_locations);
 	void Solve_Forces();

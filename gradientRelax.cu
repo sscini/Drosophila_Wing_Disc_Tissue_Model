@@ -1,75 +1,355 @@
+//// ============================================================================
+//// gradientRelax.cu - Force-Based Convergence Version
+////
+//// This version uses maximum force magnitude as the convergence criterion
+//// instead of displacement. This is more physically meaningful because:
+////   - Equilibrium means forces are balanced (F ˜ 0), not that motion stopped
+////   - Displacement depends on timestep; force doesn't
+////   - Avoids "false convergence" when dt is small
+////
+//// Replace your existing gradientRelax.cu with this file.
+//// ============================================================================
+//
 #include "gradientRelax.h"
-#include <vector>            // for std::vector
-#include <thrust/copy.h>     // for thrust::copy
-#include <limits>            // for std::numeric_limits
-#include <cmath>             // for std::sqrt
+#include <vector>
+#include <thrust/copy.h>
+#include <thrust/transform_reduce.h>
+#include <thrust/functional.h>
+#include <limits>
+#include <cmath>
+#include <iostream>
 
-int relaxUntilConverged(System& system)
+// Functor to compute force magnitude from (fx, fy, fz)
+struct ForceMagnitudeFunctor {
+    __host__ __device__
+    double operator()(const thrust::tuple<double, double, double>& f) const {
+        double fx = thrust::get<0>(f);
+        double fy = thrust::get<1>(f);
+        double fz = thrust::get<2>(f);
+        return sqrt(fx*fx + fy*fy + fz*fz);
+    }
+};
+
+//int relaxUntilConverged(System& system)
+//{
+//    // Pull references to the pieces we need
+//    auto& coordInfoVecs = system.coordInfoVecs;
+//    auto& generalParams = system.generalParams;
+//    auto& domainParams  = system.domainParams;
+//
+//    // Number of nodes
+//    const int N = static_cast<int>(coordInfoVecs.nodeLocX.size());
+//
+//    // ========================================================================
+//    // CONVERGENCE PARAMETERS
+//    // ========================================================================
+//    
+//    // Force-based convergence threshold
+//    // Converge when max|F| < force_tol
+//    double force_tol = 1.0;  // Adjust based on your spring constants
+//    
+//    // Also keep displacement check as a secondary criterion
+//    double disp_tol = generalParams.tol;  // Use the existing tolerance
+//    
+//    // Maximum iterations to prevent infinite loops
+//    int max_iterations = 100000;
+//    
+//    // How often to print progress (0 = never)
+//    int print_interval = 0;  // Set to 1000 or so for debugging
+//    
+//    // ========================================================================
+//    // RELAXATION LOOP
+//    // ========================================================================
+//    
+//    // Host-side buffers for position tracking (optional, for displacement check)
+//    std::vector<double> x_old(N), y_old(N), z_old(N);
+//    
+//    int iter = 0;
+//    double maxForce = std::numeric_limits<double>::infinity();
+//    double avgDisplacement = std::numeric_limits<double>::infinity();
+//    
+//    while (iter < max_iterations) {
+//        
+//        // 1) Snapshot old positions (for displacement calculation)
+//        thrust::copy(coordInfoVecs.nodeLocX.begin(),
+//                     coordInfoVecs.nodeLocX.end(),
+//                     x_old.begin());
+//        thrust::copy(coordInfoVecs.nodeLocY.begin(),
+//                     coordInfoVecs.nodeLocY.end(),
+//                     y_old.begin());
+//        thrust::copy(coordInfoVecs.nodeLocZ.begin(),
+//                     coordInfoVecs.nodeLocZ.end(),
+//                     z_old.begin());
+//
+//        // 2) Compute forces
+//        system.Solve_Forces();
+//        
+//        // 3) Compute maximum force magnitude (PRIMARY convergence criterion)
+//        maxForce = thrust::transform_reduce(
+//            thrust::make_zip_iterator(thrust::make_tuple(
+//                coordInfoVecs.nodeForceX.begin(),
+//                coordInfoVecs.nodeForceY.begin(),
+//                coordInfoVecs.nodeForceZ.begin())),
+//            thrust::make_zip_iterator(thrust::make_tuple(
+//                coordInfoVecs.nodeForceX.end(),
+//                coordInfoVecs.nodeForceY.end(),
+//                coordInfoVecs.nodeForceZ.end())),
+//            ForceMagnitudeFunctor(),
+//            0.0,
+//            thrust::maximum<double>());
+//        
+//        // 4) Check force-based convergence BEFORE advancing positions
+//        if (maxForce < force_tol) {
+//            // Store final values for external access
+//            generalParams.dx = avgDisplacement;
+//            
+//            if (print_interval > 0) {
+//                std::cout << "  [relaxUntilConverged] Converged! iter=" << iter 
+//                          << ", maxF=" << maxForce << std::endl;
+//            }
+//            return iter;
+//        }
+//        
+//        // 5) Advance positions
+//        AdvancePositions(coordInfoVecs, generalParams, domainParams);
+//
+//        // 6) Compute displacement (SECONDARY criterion, for monitoring)
+//        double dx_sum = 0.0;
+//        std::vector<double> x_new(N), y_new(N), z_new(N);
+//        thrust::copy(coordInfoVecs.nodeLocX.begin(),
+//                     coordInfoVecs.nodeLocX.end(),
+//                     x_new.begin());
+//        thrust::copy(coordInfoVecs.nodeLocY.begin(),
+//                     coordInfoVecs.nodeLocY.end(),
+//                     y_new.begin());
+//        thrust::copy(coordInfoVecs.nodeLocZ.begin(),
+//                     coordInfoVecs.nodeLocZ.end(),
+//                     z_new.begin());
+//        
+//        for (int i = 0; i < N; ++i) {
+//            double dx = x_new[i] - x_old[i];
+//            double dy = y_new[i] - y_old[i];
+//            double dz = z_new[i] - z_old[i];
+//            dx_sum += std::sqrt(dx*dx + dy*dy + dz*dz);
+//        }
+//        avgDisplacement = dx_sum / N;
+//        
+//        // 7) Optional: Also check displacement-based convergence
+//        //    (useful if forces are tiny but non-zero due to numerical noise)
+//        if (avgDisplacement < disp_tol && maxForce < force_tol * 10) {
+//            generalParams.dx = avgDisplacement;
+//            
+//            if (print_interval > 0) {
+//                std::cout << "  [relaxUntilConverged] Converged (disp)! iter=" << iter 
+//                          << ", maxF=" << maxForce << ", avgDisp=" << avgDisplacement << std::endl;
+//            }
+//            return iter;
+//        }
+//        
+//        // 8) Progress output
+//        if (print_interval > 0 && iter % print_interval == 0) {
+//            std::cout << "  [relaxUntilConverged] iter=" << iter 
+//                      << ", maxF=" << maxForce 
+//                      << ", avgDisp=" << avgDisplacement << std::endl;
+//        }
+//
+//        ++iter;
+//    }
+//    
+//    // If we hit max iterations, warn and return
+//    std::cout << "  [relaxUntilConverged] WARNING: Hit max iterations (" << max_iterations 
+//              << "), maxF=" << maxForce << ", avgDisp=" << avgDisplacement << std::endl;
+//    
+//    generalParams.dx = avgDisplacement;
+//    return iter;
+//}
+
+// ============================================================================
+// Alternative version with configurable parameters
+// ============================================================================
+
+int relaxUntilConvergedWithParams(
+    System& system,
+    double force_tolerance,      // Stop when max|F| < this
+    double displacement_tolerance, // Secondary criterion
+    int max_iterations,          // Safety limit
+    int print_every)             // Print progress every N iterations (0 = silent)
 {
-    // Pull references to the pieces we need
     auto& coordInfoVecs = system.coordInfoVecs;
     auto& generalParams = system.generalParams;
     auto& domainParams  = system.domainParams;
 
-    // Number of nodes
     const int N = static_cast<int>(coordInfoVecs.nodeLocX.size());
-
-    // Host-side buffers for before/after positions
+    
     std::vector<double> x_old(N), y_old(N), z_old(N);
-    std::vector<double> x_new(N), y_new(N), z_new(N);
-
-    // Force-movement accumulator
-    generalParams.dx = std::numeric_limits<double>::infinity();
+    
     int iter = 0;
+    double maxForce = std::numeric_limits<double>::infinity();
+    double avgDisplacement = std::numeric_limits<double>::infinity();
+    
+    while (iter < max_iterations) {
+        
+        // Snapshot old positions
+        thrust::copy(coordInfoVecs.nodeLocX.begin(), coordInfoVecs.nodeLocX.end(), x_old.begin());
+        thrust::copy(coordInfoVecs.nodeLocY.begin(), coordInfoVecs.nodeLocY.end(), y_old.begin());
+        thrust::copy(coordInfoVecs.nodeLocZ.begin(), coordInfoVecs.nodeLocZ.end(), z_old.begin());
 
-    while (generalParams.dx > generalParams.tol) {
-        // 1) Snapshot old positions (device ? host)
-        thrust::copy(
-            coordInfoVecs.nodeLocX.begin(),
-            coordInfoVecs.nodeLocX.end(),
-            x_old.begin());
-        thrust::copy(
-            coordInfoVecs.nodeLocY.begin(),
-            coordInfoVecs.nodeLocY.end(),
-            y_old.begin());
-        thrust::copy(
-            coordInfoVecs.nodeLocZ.begin(),
-            coordInfoVecs.nodeLocZ.end(),
-            z_old.begin());
+        // Compute forces
+        system.Solve_Forces();
+        
+//        // Get current total forces
+//        thrust::host_vector<double> hfx = coordInfoVecs.nodeForceX;
+//        thrust::host_vector<double> hfy = coordInfoVecs.nodeForceY;
+//        thrust::host_vector<double> hfz = coordInfoVecs.nodeForceZ;
+//        
+//        double maxF = 0.0;
+//        for (int i = 0; i < generalParams.maxNodeCount; i++) {
+//            double F = sqrt(hfx[i]*hfx[i] + hfy[i]*hfy[i] + hfz[i]*hfz[i]);
+//            maxF = std::max(maxF, F);
+//        }
+//        
+//        
+//        std::cout << "Max|F|=" << maxF  << std::endl;
+        
+        // Compute maximum force magnitude
+        maxForce = thrust::transform_reduce(
+            thrust::make_zip_iterator(thrust::make_tuple(
+                coordInfoVecs.nodeForceX.begin(),
+                coordInfoVecs.nodeForceY.begin(),
+                coordInfoVecs.nodeForceZ.begin())),
+            thrust::make_zip_iterator(thrust::make_tuple(
+                coordInfoVecs.nodeForceX.end(),
+                coordInfoVecs.nodeForceY.end(),
+                coordInfoVecs.nodeForceZ.end())),
+            ForceMagnitudeFunctor(),
+            0.0,
+            thrust::maximum<double>());
+        
+        // Check convergence
+        if (maxForce < force_tolerance) {
+            generalParams.dx = avgDisplacement;
+            if (print_every > 0) {
+                std::cout << "  Converged: iter=" << iter << ", maxF=" << maxForce << std::endl;
+            }
+            return iter;
+        }
+        
+        // Advance positions
+        AdvancePositions(coordInfoVecs, generalParams, domainParams);
 
-        // 2) Build forces, then move nodes
-        system.Solve_Forces();  // member in System
-        AdvancePositions(
-            coordInfoVecs,
-            generalParams,
-            domainParams);       // free function
-
-        // 3) Snapshot new positions 
-        thrust::copy(
-            coordInfoVecs.nodeLocX.begin(),
-            coordInfoVecs.nodeLocX.end(),
-            x_new.begin());
-        thrust::copy(
-            coordInfoVecs.nodeLocY.begin(),
-            coordInfoVecs.nodeLocY.end(),
-            y_new.begin());
-        thrust::copy(
-            coordInfoVecs.nodeLocZ.begin(),
-            coordInfoVecs.nodeLocZ.end(),
-            z_new.begin());
-
-        // 4) Compute total L2-movement across all nodes
+        // Compute displacement
         double dx_sum = 0.0;
         for (int i = 0; i < N; ++i) {
-            double dx = x_new[i] - x_old[i];
-            double dy = y_new[i] - y_old[i];
-            double dz = z_new[i] - z_old[i];
+            double dx = coordInfoVecs.nodeLocX[i] - x_old[i];
+            double dy = coordInfoVecs.nodeLocY[i] - y_old[i];
+            double dz = coordInfoVecs.nodeLocZ[i] - z_old[i];
             dx_sum += std::sqrt(dx*dx + dy*dy + dz*dz);
         }
-        generalParams.dx = dx_sum/N;
+        avgDisplacement = dx_sum / N;
+        
+        // Progress output
+        if (print_every > 0 && iter % print_every == 0) {
+            std::cout << "  iter=" << iter << ", maxF=" << maxForce 
+                      << ", avgDisp=" << avgDisplacement << std::endl;
+        }
 
         ++iter;
     }
-
+    
+    std::cout << "  WARNING: Max iterations reached, maxF=" << maxForce << std::endl;
+    generalParams.dx = avgDisplacement;
     return iter;
 }
+
+
+
+
+
+
+
+
+//#include "gradientRelax.h"
+//#include <vector>            // for std::vector
+//#include <thrust/copy.h>     // for thrust::copy
+//#include <limits>            // for std::numeric_limits
+//#include <cmath>             // for std::sqrt
+//
+//int relaxUntilConverged(System& system)
+//{
+//    // Pull references to the pieces we need
+//    auto& coordInfoVecs = system.coordInfoVecs;
+//    auto& generalParams = system.generalParams;
+//    auto& domainParams  = system.domainParams;
+//
+//    // Number of nodes
+//    const int N = static_cast<int>(coordInfoVecs.nodeLocX.size());
+//
+//    // Host-side buffers for before/after positions
+//    std::vector<double> x_old(N), y_old(N), z_old(N);
+//    std::vector<double> x_new(N), y_new(N), z_new(N);
+//
+//    // Force-movement accumulator
+//    generalParams.dx = std::numeric_limits<double>::infinity();
+//    int iter = 0;
+//
+//    while (generalParams.dx > generalParams.tol) {
+//        // 1) Snapshot old positions (device ? host)
+//        thrust::copy(
+//            coordInfoVecs.nodeLocX.begin(),
+//            coordInfoVecs.nodeLocX.end(),
+//            x_old.begin());
+//        thrust::copy(
+//            coordInfoVecs.nodeLocY.begin(),
+//            coordInfoVecs.nodeLocY.end(),
+//            y_old.begin());
+//        thrust::copy(
+//            coordInfoVecs.nodeLocZ.begin(),
+//            coordInfoVecs.nodeLocZ.end(),
+//            z_old.begin());
+//
+//        // 2) Build forces, then move nodes
+//        system.Solve_Forces();  // member in System
+//        // After Solve_Forces() in relaxUntilConverged:
+//        double max_F = 0.0;
+//        thrust::host_vector<double> hfx = coordInfoVecs.nodeForceX;
+//        thrust::host_vector<double> hfy = coordInfoVecs.nodeForceY;
+//        thrust::host_vector<double> hfz = coordInfoVecs.nodeForceZ;
+//        for (int i = 0; i < N; i++) {
+//            double F = sqrt(hfx[i]*hfx[i] + hfy[i]*hfy[i] + hfz[i]*hfz[i]);
+//            max_F = std::max(max_F, F);
+//        }
+//        std::cout << "Max |F| = " << max_F << std::endl;
+//        AdvancePositions(
+//            coordInfoVecs,
+//            generalParams,
+//            domainParams);       // free function
+//
+//        // 3) Snapshot new positions 
+//        thrust::copy(
+//            coordInfoVecs.nodeLocX.begin(),
+//            coordInfoVecs.nodeLocX.end(),
+//            x_new.begin());
+//        thrust::copy(
+//            coordInfoVecs.nodeLocY.begin(),
+//            coordInfoVecs.nodeLocY.end(),
+//            y_new.begin());
+//        thrust::copy(
+//            coordInfoVecs.nodeLocZ.begin(),
+//            coordInfoVecs.nodeLocZ.end(),
+//            z_new.begin());
+//
+//        // 4) Compute total L2-movement across all nodes
+//        double dx_sum = 0.0;
+//        for (int i = 0; i < N; ++i) {
+//            double dx = x_new[i] - x_old[i];
+//            double dy = y_new[i] - y_old[i];
+//            double dz = z_new[i] - z_old[i];
+//            dx_sum += std::sqrt(dx*dx + dy*dy + dz*dz);
+//        }
+//        generalParams.dx = dx_sum/N;
+//
+//        ++iter;
+//    }
+//
+//    return iter;
+//}

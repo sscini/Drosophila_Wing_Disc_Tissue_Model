@@ -729,6 +729,19 @@ void System::Solve_Forces()
           linearSpringInfoVecs,
           ljInfoVecs,
           prismInfoVecs);
+          
+          
+//        {
+//            thrust::host_vector<bool> h_fixed = coordInfoVecs.isNodeFixed;
+//            int fixed = thrust::count(h_fixed.begin(), h_fixed.end(), true);
+//            int total = h_fixed.size();
+//            std::cout << "isNodeFixed: " << fixed << "/" << total << " nodes fixed ("
+//                      << (100.0 * fixed / total) << "%)" << std::endl;
+//            if (fixed == total) {
+//                std::cout << "*** ERROR: ALL NODES ARE FIXED! ***" << std::endl;
+//            }
+//        }
+
           // Add this diagnostic code in Solve_Forces(), right after ComputeVolume():
 
         static int debug_call_count = 0;
@@ -1136,46 +1149,130 @@ void System::solveSystem()
     std::cout << "edges2Triangles_2 = " << coordInfoVecs.edges2Triangles_2.size() << std::endl;
 
    
-    for (int i = 0; i < coordInfoVecs.num_edges; i++)
-    {
+    // Initialize all nodes as FREE
+    thrust::fill(coordInfoVecs.isNodeFixed.begin(), coordInfoVecs.isNodeFixed.end(), false);
+    
+    // Mark ONLY boundary nodes as fixed
+    for (int i = 0; i < coordInfoVecs.num_edges; i++) {
         int T1 = static_cast<int>(coordInfoVecs.edges2Triangles_1[i]);
         int T2 = static_cast<int>(coordInfoVecs.edges2Triangles_2[i]);
-
-        // std::cout<<"it got till here - nav "<< std::endl;// it got till here.
-
-        // Optionally check if the triangle indices are valid.
+    
         if (T1 < 0 || T2 < 0 || T1 >= (INT_MAX - 1000) || T2 >= (INT_MAX - 1000))
-        {
             continue;
-        }
-        if (T1 == T2)
-        {
+        
+        if (T1 == T2) {
+            // Boundary edge - fix these nodes
             generalParams.boundaries_in_lowerhem[i] = 1;
-            boundary_edge_list.push_back(i); // This is to store the total number of boundary edges.
+            boundary_edge_list.push_back(i);
+            
             int bdry_node1 = static_cast<int>(coordInfoVecs.edges2Nodes_1[i]);
             int bdry_node2 = static_cast<int>(coordInfoVecs.edges2Nodes_2[i]);
             boundary_node_list.push_back(bdry_node1);
             boundary_node_list.push_back(bdry_node2);
-
-//            // mark these nodes as boundary or (fixed).
-//            generalParams.nodes_in_upperhem[bdry_node1] = 10;
-//            generalParams.nodes_in_upperhem[bdry_node2] = 10;
+            
             coordInfoVecs.isNodeFixed[bdry_node1] = true;
             coordInfoVecs.isNodeFixed[bdry_node2] = true;
-            
-        }
-        else
-        {
+        } else {
+            // Interior edge - just mark it, DON'T touch isNodeFixed
             generalParams.boundaries_in_upperhem[i] = -1;
-            int bdry_node1 = static_cast<int>(coordInfoVecs.edges2Nodes_1[i]);
-            int bdry_node2 = static_cast<int>(coordInfoVecs.edges2Nodes_2[i]);
-            coordInfoVecs.isNodeFixed[bdry_node1] = false;
-            coordInfoVecs.isNodeFixed[bdry_node2] = false;
         }
     }
+    
+    // =============================================================================
+// DIAGNOSTIC: Check edges2Triangles values
+// =============================================================================
+// 
+// Add this diagnostic code RIGHT AFTER the boundary detection loop (after line 1179)
+// to understand why all nodes are being marked as fixed.
+//
+// The likely cause: edges2Triangles_1[i] == edges2Triangles_2[i] for ALL edges,
+// either because:
+// 1. The data wasn't loaded correctly from the XML
+// 2. Both arrays have the same default value (0 or -1)
+// 3. The edge-to-triangle mapping is incorrect
+// =============================================================================
 
+// ADD THIS CODE after line 1179 (after the boundary detection loop closes)
+
+    // ========== DIAGNOSTIC: Check boundary detection results ==========
+    {
+        std::cout << "\n=== BOUNDARY DETECTION DIAGNOSTIC ===" << std::endl;
+        
+        // Count how many edges have T1 == T2
+        int t1_eq_t2_count = 0;
+        int t1_neq_t2_count = 0;
+        int invalid_count = 0;
+        
+        // Sample some edge values
+        std::cout << "Sample edges2Triangles values:" << std::endl;
+        for (int i = 0; i < std::min(20, (int)coordInfoVecs.num_edges); i++) {
+            int T1 = static_cast<int>(coordInfoVecs.edges2Triangles_1[i]);
+            int T2 = static_cast<int>(coordInfoVecs.edges2Triangles_2[i]);
+            std::cout << "  Edge " << i << ": T1=" << T1 << ", T2=" << T2;
+            if (T1 == T2) std::cout << " [BOUNDARY]";
+            std::cout << std::endl;
+        }
+        
+        // Count all edges
+        for (int i = 0; i < coordInfoVecs.num_edges; i++) {
+            int T1 = static_cast<int>(coordInfoVecs.edges2Triangles_1[i]);
+            int T2 = static_cast<int>(coordInfoVecs.edges2Triangles_2[i]);
+            
+            if (T1 < 0 || T2 < 0 || T1 >= (INT_MAX - 1000) || T2 >= (INT_MAX - 1000)) {
+                invalid_count++;
+            } else if (T1 == T2) {
+                t1_eq_t2_count++;
+            } else {
+                t1_neq_t2_count++;
+            }
+        }
+        
+        std::cout << "\nEdge classification:" << std::endl;
+        std::cout << "  Total edges: " << coordInfoVecs.num_edges << std::endl;
+        std::cout << "  Boundary edges (T1 == T2): " << t1_eq_t2_count << std::endl;
+        std::cout << "  Interior edges (T1 != T2): " << t1_neq_t2_count << std::endl;
+        std::cout << "  Invalid edges (skipped): " << invalid_count << std::endl;
+        
+        // Count fixed nodes
+        thrust::host_vector<bool> h_fixed = coordInfoVecs.isNodeFixed;
+        int fixed_count = thrust::count(h_fixed.begin(), h_fixed.end(), true);
+        std::cout << "\nNode status after boundary detection:" << std::endl;
+        std::cout << "  Fixed nodes: " << fixed_count << "/" << generalParams.maxNodeCount << std::endl;
+        std::cout << "  Free nodes: " << (generalParams.maxNodeCount - fixed_count) << std::endl;
+        
+        if (t1_eq_t2_count == coordInfoVecs.num_edges) {
+            std::cout << "\n*** WARNING: ALL edges have T1 == T2! ***" << std::endl;
+            std::cout << "    This means edges2Triangles data is likely incorrect." << std::endl;
+            std::cout << "    Check how edges2Triangles_1 and edges2Triangles_2 are loaded." << std::endl;
+        }
+        
+        if (t1_neq_t2_count == 0 && invalid_count == coordInfoVecs.num_edges) {
+            std::cout << "\n*** WARNING: ALL edges are invalid! ***" << std::endl;
+            std::cout << "    edges2Triangles arrays may contain invalid values." << std::endl;
+        }
+        
+        std::cout << "=== END DIAGNOSTIC ===" << std::endl << std::endl;
+    }
+    // ========== END DIAGNOSTIC ==========
+
+
+// =============================================================================
+// ALTERNATIVE: If edges2Triangles data is wrong, DON'T fix any nodes
+// =============================================================================
+// 
+// If you want to test without any fixed nodes (let the whole mesh move freely),
+// replace the entire boundary detection section with just:
+
+/*
+    // Temporarily disable boundary fixing for testing
+    thrust::fill(coordInfoVecs.isNodeFixed.begin(), coordInfoVecs.isNodeFixed.end(), false);
+    std::cout << "TEST MODE: All nodes set to FREE (no boundary fixing)" << std::endl;
+*/
+
+// This will let the mesh deform without any fixed boundaries.
+// The mesh might drift in space, but you'll see if the deformation code works.
     // Use a small timestep for stability
-    generalParams.dt = 0.01;
+    generalParams.dt = 0.5;
 
 //    // Compute mesh center
 //    double cx = 0.0, cy = 0.0, cz = 0.0;
@@ -1359,9 +1456,9 @@ void System::solveSystem()
     generalParams.tol = 1e-4;
     int initial_relax_iters = relaxUntilConvergedWithParams(
     *this,
-    1.0,      // force_tolerance - stop when max|F| < 0.1
+    0.08,      // force_tolerance - stop when max|F| < 0.1
     1e-3,     // displacement_tolerance (secondary)
-    1000,   // max_iterations
+    10000,   // max_iterations
     100);     // print every 1000 iterations
 //    storage->print_VTK_File();
 //    
@@ -1458,7 +1555,7 @@ void System::solveSystem()
         }
         
         // FIX: Ensure lambda_aniso_edge_outDV = 1.0 (your XML might have 0.5)
-        generalParams.lambda_aniso_edge_outDV = 1.2;
+        generalParams.lambda_aniso_edge_outDV = 1.5;
         double frac = 1.0;   // full-field application per stage
         // NOW build the lambda field (it will use the basis vectors we just copied)
         StrainTensorGPU::buildVertexLambda(generalParams, coordInfoVecs, lambda, frac);
@@ -1860,7 +1957,7 @@ void System::solveSystem()
 
         // Relaxation parameters
         //generalParams.tol = 1e-4;
-        int Nsteps = 100; // this should be equal to the inverse of tolerance
+        int Nsteps = 1000; // this should be equal to the inverse of tolerance
 
         // ============================================
         //     GRADIENT RELAXATION LOOP
@@ -1886,9 +1983,9 @@ void System::solveSystem()
             // In System.cu:
             int k = relaxUntilConvergedWithParams(
                 *this,
-                1.0,      // force_tolerance - stop when max|F| < 0.1
+                0.05,      // force_tolerance - stop when max|F| < 0.1
                 1e-4,     // displacement_tolerance (secondary)
-                1000,   // max_iterations
+                10000,   // max_iterations
                 10);    // print every 1000 iterations
             
             verifyForceDecomposition();
@@ -2052,7 +2149,7 @@ void System::initializeSystem(HostSetInfoVecs & hostSetInfoVecs)
   
     // copy info to GPU
     std::cout << "Copying" << std::endl;
-    thrust::copy(hostSetInfoVecs.isNodeFixed.begin(), hostSetInfoVecs.isNodeFixed.end(), coordInfoVecs.isNodeFixed.begin());
+    //thrust::copy(hostSetInfoVecs.isNodeFixed.begin(), hostSetInfoVecs.isNodeFixed.end(), coordInfoVecs.isNodeFixed.begin());
 
     // Print information about fixed nodes in hostSetInfoVecs and coordInfoVecs.
     std::cout << "fixed_node_in_host: " << std::endl;

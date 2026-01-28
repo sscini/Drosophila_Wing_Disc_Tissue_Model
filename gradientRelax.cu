@@ -1,15 +1,15 @@
-//// ============================================================================
-//// gradientRelax.cu - Force-Based Convergence Version
-////
-//// This version uses maximum force magnitude as the convergence criterion
-//// instead of displacement. This is more physically meaningful because:
-////   - Equilibrium means forces are balanced (F ˜ 0), not that motion stopped
-////   - Displacement depends on timestep; force doesn't
-////   - Avoids "false convergence" when dt is small
-////
-//// Replace your existing gradientRelax.cu with this file.
-//// ============================================================================
+// ============================================================================
+// gradientRelax.cu - Force-Based Convergence Version
 //
+// This version uses maximum force magnitude as the convergence criterion
+// instead of displacement. This is more physically meaningful because:
+//   - Equilibrium means forces are balanced (F ˜ 0), not that motion stopped
+//   - Displacement depends on timestep; force doesn't
+//   - Avoids "false convergence" when dt is small
+//
+// Replace your existing gradientRelax.cu with this file.
+// ============================================================================
+
 #include "gradientRelax.h"
 #include <vector>
 #include <thrust/copy.h>
@@ -163,7 +163,7 @@ struct ForceMagnitudeFunctor {
 //    generalParams.dx = avgDisplacement;
 //    return iter;
 //}
-
+//
 // ============================================================================
 // Alternative version with configurable parameters
 // ============================================================================
@@ -197,19 +197,19 @@ int relaxUntilConvergedWithParams(
         // Compute forces
         system.Solve_Forces();
         
-//        // Get current total forces
-//        thrust::host_vector<double> hfx = coordInfoVecs.nodeForceX;
-//        thrust::host_vector<double> hfy = coordInfoVecs.nodeForceY;
-//        thrust::host_vector<double> hfz = coordInfoVecs.nodeForceZ;
-//        
-//        double maxF = 0.0;
-//        for (int i = 0; i < generalParams.maxNodeCount; i++) {
-//            double F = sqrt(hfx[i]*hfx[i] + hfy[i]*hfy[i] + hfz[i]*hfz[i]);
-//            maxF = std::max(maxF, F);
-//        }
-//        
-//        
-//        std::cout << "Max|F|=" << maxF  << std::endl;
+        // Get current total forces
+        thrust::host_vector<double> hfx = coordInfoVecs.nodeForceX;
+        thrust::host_vector<double> hfy = coordInfoVecs.nodeForceY;
+        thrust::host_vector<double> hfz = coordInfoVecs.nodeForceZ;
+        
+        double maxF = 0.0;
+        for (int i = 0; i < generalParams.maxNodeCount; i++) {
+            double F = sqrt(hfx[i]*hfx[i] + hfy[i]*hfy[i] + hfz[i]*hfz[i]);
+            maxF = std::max(maxF, F);
+        }
+        
+        
+        std::cout << "Max|F|=" << maxF  << std::endl;
         
         // Compute maximum force magnitude
         maxForce = thrust::transform_reduce(
@@ -224,7 +224,28 @@ int relaxUntilConvergedWithParams(
             ForceMagnitudeFunctor(),
             0.0,
             thrust::maximum<double>());
+            
+        static double cumulative_max_displacement = 0.0;
+        static double initial_x0 = -999999;
         
+        if (initial_x0 < -999998) {
+            initial_x0 = coordInfoVecs.nodeLocX[0];
+        }
+        
+         //Advance positions
+        AdvancePositions(coordInfoVecs, generalParams, domainParams);
+        // Add after AdvancePositions() call in relaxUntilConvergedWithParams:
+
+        
+        // Track cumulative displacement of node 0
+        double current_x0 = coordInfoVecs.nodeLocX[0];
+        double node0_total_disp = fabs(current_x0 - initial_x0);
+        
+        if (iter % 100 == 0) {
+            std::cout << "Node 0: initial_x=" << initial_x0 
+                      << " current_x=" << current_x0 
+                      << " total_displacement=" << node0_total_disp << std::endl;
+        }
         // Check convergence
         if (maxForce < force_tolerance) {
             generalParams.dx = avgDisplacement;
@@ -234,8 +255,6 @@ int relaxUntilConvergedWithParams(
             return iter;
         }
         
-        // Advance positions
-        AdvancePositions(coordInfoVecs, generalParams, domainParams);
 
         // Compute displacement
         double dx_sum = 0.0;
@@ -247,7 +266,7 @@ int relaxUntilConvergedWithParams(
         }
         avgDisplacement = dx_sum / N;
         
-        // Progress output
+       //  Progress output
         if (print_every > 0 && iter % print_every == 0) {
             std::cout << "  iter=" << iter << ", maxF=" << maxForce 
                       << ", avgDisp=" << avgDisplacement << std::endl;
@@ -267,7 +286,7 @@ int relaxUntilConvergedWithParams(
 
 
 
-
+//
 //#include "gradientRelax.h"
 //#include <vector>            // for std::vector
 //#include <thrust/copy.h>     // for thrust::copy

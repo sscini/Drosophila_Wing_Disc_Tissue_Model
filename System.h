@@ -498,7 +498,7 @@ struct GeneralParams{
 	double current_total_volume;
 	double true_current_total_volume;
 	double eq_total_volume;
-	double volume_spring_constant = 0.5;
+	double volume_spring_constant = 0.01;
 	double volume_energy;
 	double eq_total_boundary_length;
 	double line_tension_energy;
@@ -559,9 +559,9 @@ struct GeneralParams{
 
   // Strain field (lambda) values in the outDV region at different stages of eversion.
   double lambda_iso_center_outDV = 1.2; //   wl3-0hAPF (-0.12406004) | wl3-2hAPF (-0.29431527) | wl3-4hAPF (-0.20050286)
-  double lambda_iso_edge_outDV = 1.0; //      wl3-0hAPF ( 1.20789496) | wl3-2hAPF ( 1.44256030) | wl3-4hAPF ( 1.43479468)
+  double lambda_iso_edge_outDV = 1.5; //      wl3-0hAPF ( 1.20789496) | wl3-2hAPF ( 1.44256030) | wl3-4hAPF ( 1.43479468)
   double lambda_aniso_center_outDV = 1.2;//  wl3-0hAPF (-0.06172103) | wl3-2hAPF ( 0.21823128) | wl3-4hAPF ( 0.29444448)
-  double lambda_aniso_edge_outDV = 1.0; //    wl3-0hAPF ( 1.01053997) | wl3-2hAPF ( 0.98874841) | wl3-4hAPF ( 0.97652462)
+  double lambda_aniso_edge_outDV = 1.5; //    wl3-0hAPF ( 1.01053997) | wl3-2hAPF ( 0.98874841) | wl3-4hAPF ( 0.97652462)
   
   // Strain field (lambda) values in inDV region at different stages of eversion. 
   double lambda_iso_center_inDV = 1.0; //    wl3-0hAPF (-0.09848994) | wl3-2hAPF (-0.11692544) | wl3-4hAPF (-0.06151876)

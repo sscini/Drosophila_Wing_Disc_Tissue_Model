@@ -783,7 +783,9 @@ void k_buildLambda(int    N,
 
     // Inside DV stripe: only radial strain; kill tangential strain
     if (inDV) {
-        lam_pp[tid] = 1.0;
+        double along_stripe_strain = lam_rr[tid];
+        lam_rr[tid] = 1.0;                    // kill across-stripe (e_R = y)
+        lam_pp[tid] = along_stripe_strain;     // apply along-stripe (e_phi ˜ x^)
     }
 
     // assemble tensor

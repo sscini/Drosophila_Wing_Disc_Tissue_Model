@@ -1552,15 +1552,15 @@ void System::solveSystem()
         double frac = 1.0;   // full-field application per stage
         
         // Strain field (lambda) values in inDV and outDV regions at different stages of eversion. 
-        generalParams.lambda_iso_center_outDV = 1.0;
-        generalParams.lambda_iso_edge_outDV = 1.0;
-        generalParams.lambda_aniso_center_outDV = 1.0;
-        generalParams.lambda_aniso_edge_outDV = 1.0;
+        generalParams.lambda_iso_center_outDV = -0.29431527;//-0.12406004;  // wl3-0hAPF (-0.12406004) | wl3-2hAPF (-0.29431527) | wl3-4hAPF (-0.20050286)
+        generalParams.lambda_iso_edge_outDV =  1.44256030;//1.20789496;     // wl3-0hAPF ( 1.20789496) | wl3-2hAPF ( 1.44256030) | wl3-4hAPF ( 1.43479468)
+        generalParams.lambda_aniso_center_outDV =  0.21823128;//-0.06172103;// wl3-0hAPF (-0.06172103) | wl3-2hAPF ( 0.21823128) | wl3-4hAPF ( 0.29444448)
+        generalParams.lambda_aniso_edge_outDV = 0.98874841; //1.01053997;   // wl3-0hAPF ( 1.01053997) | wl3-2hAPF ( 0.98874841) | wl3-4hAPF ( 0.97652462)
         
-        generalParams.lambda_iso_center_inDV = 1.5; //    wl3-0hAPF (-0.09848994) | wl3-2hAPF (-0.11692544) | wl3-4hAPF (-0.06151876)
-        generalParams.lambda_iso_edge_inDV = 1.0;//       wl3-0hAPF ( 1.18401136) | wl3-2hAPF ( 1.21007540) | wl3-4hAPF ( 1.47472744)
-        generalParams.lambda_aniso_center_inDV = 1.0; //  wl3-0hAPF (-0.12904887) | wl3-2hAPF (-0.21271504) | wl3-4hAPF (-0.30567972)
-        generalParams.lambda_aniso_edge_inDV = 1.5; //    wl3-0hAPF ( 1.03128453) | wl3-2hAPF ( 1.24178074) | wl3-4hAPF ( 1.29370391)
+        generalParams.lambda_iso_center_inDV = -0.11692544;//-0.09848994; //    wl3-0hAPF (-0.09848994) | wl3-2hAPF (-0.11692544) | wl3-4hAPF (-0.06151876)
+        generalParams.lambda_iso_edge_inDV = 1.21007540;  //1.18401136;//       wl3-0hAPF ( 1.18401136) | wl3-2hAPF ( 1.21007540) | wl3-4hAPF ( 1.47472744)
+        generalParams.lambda_aniso_center_inDV = -0.21271504;//-0.12904887; //  wl3-0hAPF (-0.12904887) | wl3-2hAPF (-0.21271504) | wl3-4hAPF (-0.30567972)
+        generalParams.lambda_aniso_edge_inDV = 1.24178074;  //1.03128453; //    wl3-0hAPF ( 1.03128453) | wl3-2hAPF ( 1.24178074) | wl3-4hAPF ( 1.29370391)
         
         
         // NOW build the lambda field (it will use the basis vectors we just copied)

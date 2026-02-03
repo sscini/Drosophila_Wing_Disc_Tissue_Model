@@ -12,6 +12,12 @@
 //     with side decided by a fixed in-plane vector perpendicular to the DV axis.
 //
 // Vertical/pillar edges are flagged as -1 and are not altered in the rest-length update.
+//
+// Region-aware strain gating (strainMode):
+//   0 = apply strain to ALL regions (both inDV and outDV)
+//   1 = apply strain to inDV edges only  (outDV edges untouched)
+//   2 = apply strain to outDV edges only (inDV edges untouched)
+// The mode is determined automatically from lambda values on the host side.
 
 #include "StrainTensor.h"
 #include "SystemStructures.h"
@@ -356,13 +362,13 @@ void StrainTensorGPU::computeBasisVectorsWithDVSeparation(
             pathlength = r / origins.max_r_ventral;
         }
         
-        // Store e_R
+        // Store e_R (radial direction)
         h_eR_x[i] = radial_x;
         h_eR_y[i] = radial_y;
         h_eR_z[i] = radial_z;
         h_pathlength[i] = pathlength;
         
-        // Compute surface normal (e_h)
+        // Compute raw surface normal
         double nx = x - origins.center_x;
         double ny = y - origins.center_y;
         double nz = z - origins.center_z;
@@ -376,283 +382,94 @@ void StrainTensorGPU::computeBasisVectorsWithDVSeparation(
             nx = 0; ny = 0; nz = 1;
         }
         
-        h_eH_x[i] = nx;
-        h_eH_y[i] = ny;
-        h_eH_z[i] = nz;
-        
-        // ============================================================================
-        // FIX: Orthonormalize Basis Vectors Using Gram-Schmidt
+        // ====================================================================
+        // GRAM-SCHMIDT ORTHONORMALIZATION
+        // 
+        // We want an orthonormal basis {e_R, e_phi, e_h} where:
+        //   - e_R is the primary direction (radial from region origin)
+        //   - e_h is perpendicular to e_R and roughly aligned with surface normal
+        //   - e_phi is perpendicular to both (tangential/circumferential)
         //
-        // The problem: e_R (radial from region origin) and e_h (surface normal from
-        // mesh center) are NOT perpendicular on a spherical dome.
-        //
-        // The fix: Use Gram-Schmidt orthonormalization to ensure the basis is
-        // orthonormal before assembling the strain tensor.
-        //
-        // In StrainTensor.cu, find the section in computeBasisVectorsWithDVSeparation()
-        // where e_phi is computed (around lines 383-414), and REPLACE with this code:
-        // ============================================================================
+        // Process:
+        //   1. Start with e_R (already unit length)
+        //   2. Orthogonalize e_h against e_R: e_h' = e_h - (e_h·e_R)*e_R
+        //   3. Normalize e_h'
+        //   4. Compute e_phi = e_h' × e_R (guaranteed perpendicular to both)
+        // ====================================================================
         
-                // ====================================================================
-                // GRAM-SCHMIDT ORTHONORMALIZATION
-                // 
-                // We want an orthonormal basis {e_R, e_phi, e_h} where:
-                //   - e_R is the primary direction (radial from region origin)
-                //   - e_h is perpendicular to e_R and roughly aligned with surface normal
-                //   - e_phi is perpendicular to both (tangential/circumferential)
-                //
-                // Process:
-                //   1. Start with e_R (already unit length)
-                //   2. Orthogonalize e_h against e_R: e_h' = e_h - (e_h·e_R)*e_R
-                //   3. Normalize e_h'
-                //   4. Compute e_phi = e_h' × e_R (guaranteed perpendicular to both)
-                // ====================================================================
-                
-                // Step 1: e_R is already computed and normalized (radial_x, radial_y, radial_z)
-                // Store e_R
-                h_eR_x[i] = radial_x;
-                h_eR_y[i] = radial_y;
-                h_eR_z[i] = radial_z;
-                h_pathlength[i] = pathlength;
-                
-                // Step 2: Compute initial surface normal (e_h_raw)
-                nx = x - origins.center_x;
-                ny = y - origins.center_y;
-                nz = z - origins.center_z;
-                n_mag = sqrt(nx*nx + ny*ny + nz*nz);
-                
-                if (n_mag > 1e-10) {
-                    nx /= n_mag;
-                    ny /= n_mag;
-                    nz /= n_mag;
-                } else {
-                    nx = 0; ny = 0; nz = 1;
-                }
-                
-                // Step 3: Orthogonalize e_h against e_R using Gram-Schmidt
-                // e_h_orth = e_h_raw - (e_h_raw · e_R) * e_R
-                double dot_h_R = nx*radial_x + ny*radial_y + nz*radial_z;
-                
-                double hx = nx - dot_h_R * radial_x;
-                double hy = ny - dot_h_R * radial_y;
-                double hz = nz - dot_h_R * radial_z;
-                
-                // Normalize e_h
-                double h_mag = sqrt(hx*hx + hy*hy + hz*hz);
-                
-                if (h_mag > 1e-10) {
-                    hx /= h_mag;
-                    hy /= h_mag;
-                    hz /= h_mag;
-                } else {
-                    // e_h was parallel to e_R, need to pick an arbitrary perpendicular direction
-                    // Find a vector not parallel to e_R
-                    if (fabs(radial_x) < 0.9) {
-                        hx = 1; hy = 0; hz = 0;
-                    } else {
-                        hx = 0; hy = 1; hz = 0;
-                    }
-                    // Orthogonalize
-                    double dot = hx*radial_x + hy*radial_y + hz*radial_z;
-                    hx -= dot * radial_x;
-                    hy -= dot * radial_y;
-                    hz -= dot * radial_z;
-                    // Normalize
-                    h_mag = sqrt(hx*hx + hy*hy + hz*hz);
-                    if (h_mag > 1e-10) {
-                        hx /= h_mag;
-                        hy /= h_mag;
-                        hz /= h_mag;
-                    }
-                }
-                
-                h_eH_x[i] = hx;
-                h_eH_y[i] = hy;
-                h_eH_z[i] = hz;
-                
-                // Step 4: Compute e_phi = e_h × e_R (cross product)
-                // This is guaranteed perpendicular to both e_h and e_R
-                double phi_x = hy * radial_z - hz * radial_y;
-                double phi_y = hz * radial_x - hx * radial_z;
-                double phi_z = hx * radial_y - hy * radial_x;
-                
-                // Normalize e_phi (should already be unit length if e_h and e_R are orthonormal)
-                double phi_mag = sqrt(phi_x*phi_x + phi_y*phi_y + phi_z*phi_z);
-                
-                if (phi_mag > 1e-10) {
-                    phi_x /= phi_mag;
-                    phi_y /= phi_mag;
-                    phi_z /= phi_mag;
-                } else {
-                    // Degenerate case - shouldn't happen with proper orthogonalization
-                    phi_x = 0; phi_y = 0; phi_z = 1;
-                }
-                
-                h_ePhi_x[i] = phi_x;
-                h_ePhi_y[i] = phi_y;
-                h_ePhi_z[i] = phi_z;
-                
-                // ====================================================================
-                // VERIFICATION (optional, can remove after testing)
-                // ====================================================================
-                #ifdef DEBUG_BASIS_VECTORS
-                // Check orthonormality
-                double dot_R_phi = radial_x*phi_x + radial_y*phi_y + radial_z*phi_z;
-                double dot_R_h = radial_x*hx + radial_y*hy + radial_z*hz;
-                double dot_phi_h = phi_x*hx + phi_y*hy + phi_z*hz;
-                
-                if (fabs(dot_R_phi) > 1e-10 || fabs(dot_R_h) > 1e-10 || fabs(dot_phi_h) > 1e-10) {
-                    std::cout << "WARNING: Node " << i << " basis not orthonormal!" << std::endl;
-                    std::cout << "  e_R·e_phi = " << dot_R_phi << std::endl;
-                    std::cout << "  e_R·e_h = " << dot_R_h << std::endl;
-                    std::cout << "  e_phi·e_h = " << dot_phi_h << std::endl;
-                }
-                #endif
+        // Step 3: Orthogonalize e_h against e_R using Gram-Schmidt
+        double dot_h_R = nx*radial_x + ny*radial_y + nz*radial_z;
         
+        double hx = nx - dot_h_R * radial_x;
+        double hy = ny - dot_h_R * radial_y;
+        double hz = nz - dot_h_R * radial_z;
         
-        // ============================================================================
-        // COMPLETE REPLACEMENT for the basis vector computation loop in 
-        // computeBasisVectorsWithDVSeparation() (lines ~294-415 in StrainTensor.cu)
-        //
-        // Replace the entire loop body with this:
-        // ============================================================================
+        // Normalize e_h
+        double h_mag = sqrt(hx*hx + hy*hy + hz*hz);
         
-        /*
-            for (int i = 0; i < N; ++i) {
-                double x = h_nodeLocX[i];
-                double y = h_nodeLocY[i];
-                double z = h_nodeLocZ[i];
-                
-                RegionType region = classifyNodeRegion(y, origins.DV_half_width);
-                
-                double radial_x, radial_y, radial_z;
-                double pathlength;
-                
-                if (region == REGION_DV) {
-                    h_nodes_in_DV[i] = 1;
-                    count_DV++;
-                    
-                    radial_x = 0;
-                    radial_y = (y >= 0) ? 1.0 : -1.0;
-                    radial_z = 0;
-                    
-                    double rho = fabs(y);
-                    pathlength = rho / origins.max_rho_DV;
-                    
-                } else if (region == REGION_DORSAL) {
-                    h_nodes_in_DV[i] = 0;
-                    count_dorsal++;
-                    
-                    double dx = x - origins.OD_x;
-                    double dy = y - origins.OD_y;
-                    double dz = z - origins.OD_z;
-                    double r = sqrt(dx*dx + dy*dy + dz*dz);
-                    
-                    if (r > 1e-10) {
-                        radial_x = dx / r;
-                        radial_y = dy / r;
-                        radial_z = dz / r;
-                    } else {
-                        radial_x = 0;
-                        radial_y = -1;
-                        radial_z = 0;
-                    }
-                    
-                    pathlength = r / origins.max_r_dorsal;
-                    
-                } else { // REGION_VENTRAL
-                    h_nodes_in_DV[i] = 0;
-                    count_ventral++;
-                    
-                    double dx = x - origins.OV_x;
-                    double dy = y - origins.OV_y;
-                    double dz = z - origins.OV_z;
-                    double r = sqrt(dx*dx + dy*dy + dz*dz);
-                    
-                    if (r > 1e-10) {
-                        radial_x = dx / r;
-                        radial_y = dy / r;
-                        radial_z = dz / r;
-                    } else {
-                        radial_x = 0;
-                        radial_y = 1;
-                        radial_z = 0;
-                    }
-                    
-                    pathlength = r / origins.max_r_ventral;
-                }
-                
-                // Store e_R (radial direction)
-                h_eR_x[i] = radial_x;
-                h_eR_y[i] = radial_y;
-                h_eR_z[i] = radial_z;
-                h_pathlength[i] = pathlength;
-                
-                // Compute raw surface normal
-                double nx = x - origins.center_x;
-                double ny = y - origins.center_y;
-                double nz = z - origins.center_z;
-                double n_mag = sqrt(nx*nx + ny*ny + nz*nz);
-                
-                if (n_mag > 1e-10) {
-                    nx /= n_mag;
-                    ny /= n_mag;
-                    nz /= n_mag;
-                } else {
-                    nx = 0; ny = 0; nz = 1;
-                }
-                
-                // GRAM-SCHMIDT: Orthogonalize e_h against e_R
-                double dot_h_R = nx*radial_x + ny*radial_y + nz*radial_z;
-                
-                double hx = nx - dot_h_R * radial_x;
-                double hy = ny - dot_h_R * radial_y;
-                double hz = nz - dot_h_R * radial_z;
-                
-                double h_mag = sqrt(hx*hx + hy*hy + hz*hz);
-                
-                if (h_mag > 1e-10) {
-                    hx /= h_mag;
-                    hy /= h_mag;
-                    hz /= h_mag;
-                } else {
-                    // e_h parallel to e_R - pick arbitrary perpendicular
-                    if (fabs(radial_x) < 0.9) {
-                        hx = 1; hy = 0; hz = 0;
-                    } else {
-                        hx = 0; hy = 1; hz = 0;
-                    }
-                    double dot = hx*radial_x + hy*radial_y + hz*radial_z;
-                    hx -= dot * radial_x;
-                    hy -= dot * radial_y;
-                    hz -= dot * radial_z;
-                    h_mag = sqrt(hx*hx + hy*hy + hz*hz);
-                    if (h_mag > 1e-10) {
-                        hx /= h_mag; hy /= h_mag; hz /= h_mag;
-                    }
-                }
-                
-                h_eH_x[i] = hx;
-                h_eH_y[i] = hy;
-                h_eH_z[i] = hz;
-                
-                // e_phi = e_h × e_R (perpendicular to both)
-                double phi_x = hy * radial_z - hz * radial_y;
-                double phi_y = hz * radial_x - hx * radial_z;
-                double phi_z = hx * radial_y - hy * radial_x;
-                
-                double phi_mag = sqrt(phi_x*phi_x + phi_y*phi_y + phi_z*phi_z);
-                if (phi_mag > 1e-10) {
-                    phi_x /= phi_mag;
-                    phi_y /= phi_mag;
-                    phi_z /= phi_mag;
-                }
-                
-                h_ePhi_x[i] = phi_x;
-                h_ePhi_y[i] = phi_y;
-                h_ePhi_z[i] = phi_z;
+        if (h_mag > 1e-10) {
+            hx /= h_mag;
+            hy /= h_mag;
+            hz /= h_mag;
+        } else {
+            // e_h was parallel to e_R, need to pick an arbitrary perpendicular direction
+            if (fabs(radial_x) < 0.9) {
+                hx = 1; hy = 0; hz = 0;
+            } else {
+                hx = 0; hy = 1; hz = 0;
             }
-        */
+            // Orthogonalize
+            double dot = hx*radial_x + hy*radial_y + hz*radial_z;
+            hx -= dot * radial_x;
+            hy -= dot * radial_y;
+            hz -= dot * radial_z;
+            // Normalize
+            h_mag = sqrt(hx*hx + hy*hy + hz*hz);
+            if (h_mag > 1e-10) {
+                hx /= h_mag;
+                hy /= h_mag;
+                hz /= h_mag;
+            }
+        }
+        
+        h_eH_x[i] = hx;
+        h_eH_y[i] = hy;
+        h_eH_z[i] = hz;
+        
+        // Step 4: Compute e_phi = e_h × e_R (cross product)
+        double phi_x = hy * radial_z - hz * radial_y;
+        double phi_y = hz * radial_x - hx * radial_z;
+        double phi_z = hx * radial_y - hy * radial_x;
+        
+        // Normalize e_phi (should already be unit length if e_h and e_R are orthonormal)
+        double phi_mag = sqrt(phi_x*phi_x + phi_y*phi_y + phi_z*phi_z);
+        
+        if (phi_mag > 1e-10) {
+            phi_x /= phi_mag;
+            phi_y /= phi_mag;
+            phi_z /= phi_mag;
+        } else {
+            // Degenerate case
+            phi_x = 0; phi_y = 0; phi_z = 1;
+        }
+        
+        h_ePhi_x[i] = phi_x;
+        h_ePhi_y[i] = phi_y;
+        h_ePhi_z[i] = phi_z;
+        
+        #ifdef DEBUG_BASIS_VECTORS
+        // Check orthonormality
+        double dot_R_phi = radial_x*phi_x + radial_y*phi_y + radial_z*phi_z;
+        double dot_R_h = radial_x*hx + radial_y*hy + radial_z*hz;
+        double dot_phi_h = phi_x*hx + phi_y*hy + phi_z*hz;
+        
+        if (fabs(dot_R_phi) > 1e-10 || fabs(dot_R_h) > 1e-10 || fabs(dot_phi_h) > 1e-10) {
+            std::cout << "WARNING: Node " << i << " basis not orthonormal!" << std::endl;
+            std::cout << "  e_R·e_phi = " << dot_R_phi << std::endl;
+            std::cout << "  e_R·e_h = " << dot_R_h << std::endl;
+            std::cout << "  e_phi·e_h = " << dot_phi_h << std::endl;
+        }
+        #endif
     }
     
     // Print region statistics
@@ -698,34 +515,11 @@ void StrainTensorGPU::computeBasisVectorsWithDVSeparation(
 }
 
 
-//// ============================================================================ Removed on 01/25/26 by nav 
-//// Mark DV stripe (independent of layer).
-//// Stripe is |x - centerX| <= R * sin(theta_DV/2).
-//// ============================================================================
-//
-//__global__
-//void k_markDVstripe(int N,
-//                    const double* x,
-//                    double centerX, double R, double thetaDV,
-//                    const int* /*isUpper, unused for gating*/,
-//                    int* DVflag)
-//{
-//    int i = blockIdx.x*blockDim.x + threadIdx.x;
-//    if (i>=N) return;
-//
-//    double halfw = R * sin(0.5*thetaDV);
-//    DVflag[i] = (fabs(x[i] - centerX) <= halfw) ? 1 : 0;
-//}
-
 // ============================================================================
 // Build local basis vectors (e_h, e_R, e_phi) at every vertex
 // DV-aware variant:
 //   - inside DV stripe: e_R is radial away from the O_D–O_V line segment
 //   - outside stripe:   e_R from OD/OV edge-centers on the appropriate side
-// ============================================================================
-
-// ============================================================================
-// Compute Basis Vectors with Region-Specific Origins
 // ============================================================================
 
 
@@ -799,6 +593,16 @@ void k_buildLambda(int    N,
 // ============================================================================
 // Rest-length update by full projection of ? onto the edge direction.
 // Vertical edges are flagged as -1 and are skipped.
+//
+// strainMode controls which region's edges get processed:
+//   0 = ALL edges (both inDV and outDV get strain)
+//   1 = inDV ONLY  (outDV edges are left untouched)
+//   2 = outDV ONLY (inDV edges are left untouched)
+//
+// CRITICAL FIX: L0 is only overwritten for edges that will actually receive
+// strain. This prevents the "ratcheting" bug where deformed geometry
+// gets locked in as the new reference configuration for edges that
+// should have identity strain.
 // ============================================================================
 
 __global__
@@ -808,7 +612,8 @@ void k_edgeRestProj(int    E,
                     const Mat_3x3 *lam_alpha,
                     double *L0, double *Lstar,
                     const int *edgeLayerFlags,  // -1 = vertical/pillar
-                    const int *nodesDVflag)      // NEW: per-node DV classification
+                    const int *nodesDVflag,      // per-node DV classification
+                    int    strainMode)           // 0=both, 1=inDV only, 2=outDV only
 {
     int eid = blockIdx.x*blockDim.x + threadIdx.x;
     if (eid >= E) return;
@@ -819,18 +624,27 @@ void k_edgeRestProj(int    E,
     int a = e2n1[eid];
     int b = e2n2[eid];
 
-    // Check if EITHER endpoint is in the DV region
-    // If both endpoints are outDV, skip this edge entirely (lambda = identity)
+    // Classify this edge by its endpoints' DV membership
     const bool a_inDV = (nodesDVflag[a] != 0);
     const bool b_inDV = (nodesDVflag[b] != 0);
+
+    // Determine if this edge should be processed based on strainMode:
+    //
+    //   strainMode 0 (BOTH):     process all edges
+    //   strainMode 1 (inDV only):  skip if BOTH endpoints are outDV
+    //   strainMode 2 (outDV only): skip if BOTH endpoints are inDV
+    //
+    // Boundary edges (one inDV, one outDV) are always processed since
+    // they connect the two regions and need partial strain from averaging.
     
-    if (!a_inDV && !b_inDV) {
-        // Both endpoints are outside DV. Lambda is identity for both.
-        // Don't modify L0 or Lstar - leave them as they are.
-        // This prevents the "ratcheting" bug where deformed geometry
-        // gets locked in as the new reference.
-        return;
+    if (strainMode == 1) {
+        // inDV only: skip purely-outDV edges
+        if (!a_inDV && !b_inDV) return;
+    } else if (strainMode == 2) {
+        // outDV only: skip purely-inDV edges
+        if (a_inDV && b_inDV) return;
     }
+    // strainMode == 0: process everything, no skip
 
     CVec3 dX = CVec3(x[a]-x[b], y[a]-y[b], z[a]-z[b]);
     L0[eid] = norm3(dX);
@@ -878,8 +692,6 @@ void buildVertexLambda(GeneralParams& gp,
     const int N = static_cast<int>(coord.nodeLocX.size());
     dim3 grid((N + BLOCK_SZ - 1) / BLOCK_SZ);
 
-
-
     // --- build ? field (uses DV mask & the basis we just built) ---
     k_buildLambda<<<grid,BLOCK_SZ>>>(
         N,
@@ -909,6 +721,57 @@ void buildVertexLambda(GeneralParams& gp,
     cudaDeviceSynchronize();
 }
 
+// ============================================================================
+// Helper: Determine strain mode from lambda values
+//
+// Checks whether inDV and outDV lambda values represent identity (all 1.0)
+// or active strain (any value != 1.0).
+//
+// Returns:
+//   0 = both regions have non-trivial strain ? process all edges
+//   1 = only inDV has non-trivial strain ? skip outDV edges
+//   2 = only outDV has non-trivial strain ? skip inDV edges
+//  -1 = both regions are identity ? no strain to apply (caller can skip entirely)
+// ============================================================================
+static int determineStrainMode(const GeneralParams& gp)
+{
+    const double tol = 1e-12;
+
+    // Check if outDV lambdas are all identity (1.0)
+    bool outDV_is_identity =
+        (fabs(gp.lambda_iso_center_outDV   - 1.0) < tol) &&
+        (fabs(gp.lambda_iso_edge_outDV     - 1.0) < tol) &&
+        (fabs(gp.lambda_aniso_center_outDV - 1.0) < tol) &&
+        (fabs(gp.lambda_aniso_edge_outDV   - 1.0) < tol);
+
+    // Check if inDV lambdas are all identity (1.0)
+    bool inDV_is_identity =
+        (fabs(gp.lambda_iso_center_inDV    - 1.0) < tol) &&
+        (fabs(gp.lambda_iso_edge_inDV      - 1.0) < tol) &&
+        (fabs(gp.lambda_aniso_center_inDV  - 1.0) < tol) &&
+        (fabs(gp.lambda_aniso_edge_inDV    - 1.0) < tol);
+
+    int mode;
+    if (!inDV_is_identity && !outDV_is_identity) {
+        mode = 0;  // both active
+    } else if (!inDV_is_identity && outDV_is_identity) {
+        mode = 1;  // inDV only
+    } else if (inDV_is_identity && !outDV_is_identity) {
+        mode = 2;  // outDV only
+    } else {
+        mode = -1; // both identity — nothing to do
+    }
+
+    // Diagnostic output
+    const char* modeNames[] = {"BOTH", "inDV ONLY", "outDV ONLY", "NONE (identity)"};
+    int modeIdx = (mode == -1) ? 3 : mode;
+    std::cout << "  Strain mode: " << modeNames[modeIdx] 
+              << " (outDV_identity=" << outDV_is_identity 
+              << ", inDV_identity=" << inDV_is_identity << ")" << std::endl;
+
+    return mode;
+}
+
 void updateEdgeRestLengths(CoordInfoVecs&  coord,
                            GeneralParams&  gp,
                            const LambdaField& field,
@@ -917,6 +780,19 @@ void updateEdgeRestLengths(CoordInfoVecs&  coord,
 {
     const int E = static_cast<int>(coord.num_edges);
     dim3 grid((E + BLOCK_SZ - 1) / BLOCK_SZ);
+
+    // Determine which regions have active strain
+    int strainMode = determineStrainMode(gp);
+
+    if (strainMode == -1) {
+        // Both regions are identity — no strain to apply at all.
+        // Copy L0 ? Lstar so rest lengths stay unchanged.
+        std::cout << "  Skipping edge rest-length update (all lambdas are identity)." << std::endl;
+        thrust::copy(lsInfo.edge_initial_length.begin(),
+                     lsInfo.edge_initial_length.begin() + E,
+                     lsInfo.edge_final_length.begin());
+        return;
+    }
 
     k_edgeRestProj<<<grid,BLOCK_SZ>>>(
         E,
@@ -929,7 +805,8 @@ void updateEdgeRestLengths(CoordInfoVecs&  coord,
         thrust::raw_pointer_cast(lsInfo.edge_initial_length.data()),
         thrust::raw_pointer_cast(lsInfo.edge_final_length.data()),
         thrust::raw_pointer_cast(gp.edges_in_upperhem.data()),   // -1 = vertical
-        thrust::raw_pointer_cast(gp.nodes_in_DV.data())          // NEW: DV flags
+        thrust::raw_pointer_cast(gp.nodes_in_DV.data()),         // DV flags
+        strainMode                                                // 0=both, 1=inDV, 2=outDV
     );
     cudaDeviceSynchronize();
 }

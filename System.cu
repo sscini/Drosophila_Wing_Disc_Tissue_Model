@@ -723,13 +723,6 @@ void System::Solve_Forces()
           ljInfoVecs,
           prismInfoVecs);
           
-        ComputeVolume(
-          generalParams,
-          coordInfoVecs,
-          linearSpringInfoVecs,
-          ljInfoVecs,
-          prismInfoVecs);
-          
           
 //        {
 //            thrust::host_vector<bool> h_fixed = coordInfoVecs.isNodeFixed;
@@ -1272,7 +1265,7 @@ void System::solveSystem()
 // This will let the mesh deform without any fixed boundaries.
 // The mesh might drift in space, but you'll see if the deformation code works.
     // Use a small timestep for stability
-    generalParams.dt = 0.5;
+    generalParams.dt = 0.01;
 
 //    // Compute mesh center
 //    double cx = 0.0, cy = 0.0, cz = 0.0;
@@ -1456,7 +1449,7 @@ void System::solveSystem()
     generalParams.tol = 1e-4;
     int initial_relax_iters = relaxUntilConvergedWithParams(
     *this,
-    0.08,      // force_tolerance - stop when max|F| < 0.1
+    0.05,      // force_tolerance - stop when max|F| < 0.1
     1e-3,     // displacement_tolerance (secondary)
     10000,   // max_iterations
     100);     // print every 1000 iterations
@@ -1555,8 +1548,21 @@ void System::solveSystem()
         }
         
         // FIX: Ensure lambda_aniso_edge_outDV = 1.0 (your XML might have 0.5)
-        generalParams.lambda_aniso_edge_outDV = 1.5;
+        generalParams.lambda_aniso_edge_outDV = 1.0;
         double frac = 1.0;   // full-field application per stage
+        
+        // Strain field (lambda) values in inDV and outDV regions at different stages of eversion. 
+        generalParams.lambda_iso_center_outDV = 1.0;
+        generalParams.lambda_iso_edge_outDV = 1.0;
+        generalParams.lambda_aniso_center_outDV = 1.0;
+        generalParams.lambda_aniso_edge_outDV = 1.0;
+        
+        generalParams.lambda_iso_center_inDV = 1.5; //    wl3-0hAPF (-0.09848994) | wl3-2hAPF (-0.11692544) | wl3-4hAPF (-0.06151876)
+        generalParams.lambda_iso_edge_inDV = 1.0;//       wl3-0hAPF ( 1.18401136) | wl3-2hAPF ( 1.21007540) | wl3-4hAPF ( 1.47472744)
+        generalParams.lambda_aniso_center_inDV = 1.0; //  wl3-0hAPF (-0.12904887) | wl3-2hAPF (-0.21271504) | wl3-4hAPF (-0.30567972)
+        generalParams.lambda_aniso_edge_inDV = 1.5; //    wl3-0hAPF ( 1.03128453) | wl3-2hAPF ( 1.24178074) | wl3-4hAPF ( 1.29370391)
+        
+        
         // NOW build the lambda field (it will use the basis vectors we just copied)
         StrainTensorGPU::buildVertexLambda(generalParams, coordInfoVecs, lambda, frac);
         
@@ -1776,6 +1782,8 @@ void System::solveSystem()
             std::cout << std::string(60, '=') << std::endl;
             
            // generalParams.lambda_aniso_edge_outDV = 1.2;
+           
+          
             
             // Print lambda parameter values
             std::cout << "\n--- Lambda Parameters (from GeneralParams) ---" << std::endl;
@@ -1988,7 +1996,7 @@ void System::solveSystem()
                 10000,   // max_iterations
                 10);    // print every 1000 iterations
             
-            verifyForceDecomposition();
+            //verifyForceDecomposition();
             
             double E = linearSpringInfoVecs.linear_spring_energy+generalParams.volume_energy;
             std::cout << "Relax iter " << iter 

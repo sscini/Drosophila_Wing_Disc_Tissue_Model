@@ -1,3 +1,30 @@
+//#ifndef VOLUMECOMP_H_
+//#define VOLUMECOMP_H_
+//
+//// Include System.h which defines all the structs (PrismInfoVecs, GeneralParams, etc.)
+//#include "System.h"
+//
+///**
+// * ComputeVolume - GPU-accelerated version
+// * 
+// * Computes total enclosed volume by summing prism volumes entirely on GPU.
+// * Uses thrust parallel reduction for O(P) work with O(log P) depth.
+// * 
+// * Key improvements over original:
+// * - No host-device memory transfers for coordinates
+// * - Parallel prism volume computation
+// * - Single reduction for total volume
+// */
+//void ComputeVolume(
+//    GeneralParams& generalParams,
+//    CoordInfoVecs& coordInfoVecs,
+//    LinearSpringInfoVecs& linearSpringInfoVecs,
+//    LJInfoVecs& ljInfoVecs,
+//    PrismInfoVecs& prismInfoVecs);
+//
+//#endif // VOLUMECOMP_H_
+
+
 #ifndef VOLUMECOMP_H_
 #define VOLUMECOMP_H_
 

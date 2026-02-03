@@ -805,7 +805,8 @@ void k_edgeRestProj(int    E,
                     const double *x,     const double *y,   const double *z,
                     const Mat_3x3 *lam_alpha,
                     double *L0, double *Lstar,
-                    const int *edgeLayerFlags) // -1 ? vertical/pillar
+                    const int *edgeLayerFlags,  // -1 = vertical/pillar
+                    const int *nodesDVflag)      // NEW: per-node DV classification
 {
     int eid = blockIdx.x*blockDim.x + threadIdx.x;
     if (eid >= E) return;
@@ -815,6 +816,19 @@ void k_edgeRestProj(int    E,
 
     int a = e2n1[eid];
     int b = e2n2[eid];
+
+    // Check if EITHER endpoint is in the DV region
+    // If both endpoints are outDV, skip this edge entirely (lambda = identity)
+    const bool a_inDV = (nodesDVflag[a] != 0);
+    const bool b_inDV = (nodesDVflag[b] != 0);
+    
+    if (!a_inDV && !b_inDV) {
+        // Both endpoints are outside DV. Lambda is identity for both.
+        // Don't modify L0 or Lstar - leave them as they are.
+        // This prevents the "ratcheting" bug where deformed geometry
+        // gets locked in as the new reference.
+        return;
+    }
 
     CVec3 dX = CVec3(x[a]-x[b], y[a]-y[b], z[a]-z[b]);
     L0[eid] = norm3(dX);
@@ -840,6 +854,7 @@ void k_edgeRestProj(int    E,
     CVec3 dX_stretch = matVec(Lp, dX);
     Lstar[eid] = norm3(dX_stretch);
 }
+
 
 // ============================================================================
 // Public wrappers
@@ -911,7 +926,8 @@ void updateEdgeRestLengths(CoordInfoVecs&  coord,
         thrust::raw_pointer_cast(field.lam_alpha.data()),
         thrust::raw_pointer_cast(lsInfo.edge_initial_length.data()),
         thrust::raw_pointer_cast(lsInfo.edge_final_length.data()),
-        thrust::raw_pointer_cast(gp.edges_in_upperhem.data())   // here: -1 denotes vertical edges
+        thrust::raw_pointer_cast(gp.edges_in_upperhem.data()),   // -1 = vertical
+        thrust::raw_pointer_cast(gp.nodes_in_DV.data())          // NEW: DV flags
     );
     cudaDeviceSynchronize();
 }

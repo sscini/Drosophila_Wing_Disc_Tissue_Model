@@ -96,6 +96,19 @@ struct PrismInfoVecs {
     thrust::device_vector<int> P6; // P6
     
     int num_prisms;
+    
+    // Node-to-prism adjacency in Compressed Sparse Row (CSR) format
+    // This enables O(k) lookup instead of O(P) for volume spring computation
+    //
+    // Usage: For node n, the prisms containing it are:
+    //   for (int i = node2prism_ptr[n]; i < node2prism_ptr[n+1]; ++i) {
+    //       int prism_id = node2prism_list[i];
+    //       int vertex_role = node2prism_role[i];  // 1-6 for P1-P6
+    //   }
+    
+    thrust::device_vector<int> node2prism_ptr;   // Size: num_nodes + 1
+    thrust::device_vector<int> node2prism_list;  // Size: sum of prisms per node
+    thrust::device_vector<int> node2prism_role;  // Size: same as list (which vertex 1-6)
 };
 
 // Struct to store node location, velocity, and force information.
@@ -498,7 +511,7 @@ struct GeneralParams{
 	double current_total_volume;
 	double true_current_total_volume;
 	double eq_total_volume;
-	double volume_spring_constant = 0.01;
+	double volume_spring_constant = 0.00001;
 	double volume_energy;
 	double eq_total_boundary_length;
 	double line_tension_energy;
@@ -558,16 +571,16 @@ struct GeneralParams{
 
 
   // Strain field (lambda) values in the outDV region at different stages of eversion.
-  double lambda_iso_center_outDV = 1.2; //   wl3-0hAPF (-0.12406004) | wl3-2hAPF (-0.29431527) | wl3-4hAPF (-0.20050286)
-  double lambda_iso_edge_outDV = 1.5; //      wl3-0hAPF ( 1.20789496) | wl3-2hAPF ( 1.44256030) | wl3-4hAPF ( 1.43479468)
-  double lambda_aniso_center_outDV = 1.2;//  wl3-0hAPF (-0.06172103) | wl3-2hAPF ( 0.21823128) | wl3-4hAPF ( 0.29444448)
-  double lambda_aniso_edge_outDV = 1.5; //    wl3-0hAPF ( 1.01053997) | wl3-2hAPF ( 0.98874841) | wl3-4hAPF ( 0.97652462)
+  double lambda_iso_center_outDV = 1.0; //   wl3-0hAPF (-0.12406004) | wl3-2hAPF (-0.29431527) | wl3-4hAPF (-0.20050286)
+  double lambda_iso_edge_outDV = 1.0; //      wl3-0hAPF ( 1.20789496) | wl3-2hAPF ( 1.44256030) | wl3-4hAPF ( 1.43479468)
+  double lambda_aniso_center_outDV = 1.0;//  wl3-0hAPF (-0.06172103) | wl3-2hAPF ( 0.21823128) | wl3-4hAPF ( 0.29444448)
+  double lambda_aniso_edge_outDV = 1.0; //    wl3-0hAPF ( 1.01053997) | wl3-2hAPF ( 0.98874841) | wl3-4hAPF ( 0.97652462)
   
   // Strain field (lambda) values in inDV region at different stages of eversion. 
-  double lambda_iso_center_inDV = 1.0; //    wl3-0hAPF (-0.09848994) | wl3-2hAPF (-0.11692544) | wl3-4hAPF (-0.06151876)
-  double lambda_iso_edge_inDV = 1.0;//       wl3-0hAPF ( 1.18401136) | wl3-2hAPF ( 1.21007540) | wl3-4hAPF ( 1.47472744)
-  double lambda_aniso_center_inDV = 1.0; //  wl3-0hAPF (-0.12904887) | wl3-2hAPF (-0.21271504) | wl3-4hAPF (-0.30567972)
-  double lambda_aniso_edge_inDV = 1.0; //    wl3-0hAPF ( 1.03128453) | wl3-2hAPF ( 1.24178074) | wl3-4hAPF ( 1.29370391)
+  double lambda_iso_center_inDV = 1.5; //    wl3-0hAPF (-0.09848994) | wl3-2hAPF (-0.11692544) | wl3-4hAPF (-0.06151876)
+  double lambda_iso_edge_inDV = 1.2;//       wl3-0hAPF ( 1.18401136) | wl3-2hAPF ( 1.21007540) | wl3-4hAPF ( 1.47472744)
+  double lambda_aniso_center_inDV = 1.5; //  wl3-0hAPF (-0.12904887) | wl3-2hAPF (-0.21271504) | wl3-4hAPF (-0.30567972)
+  double lambda_aniso_edge_inDV = 1.2; //    wl3-0hAPF ( 1.03128453) | wl3-2hAPF ( 1.24178074) | wl3-4hAPF ( 1.29370391)
   
   double disc_radius;//= 77.66; // manually input radius for each of the discs you're computing. 
   double sphere_R;

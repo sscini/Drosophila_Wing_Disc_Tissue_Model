@@ -1,0 +1,360 @@
+It is currently: Wed Apr  8 03:44:18 PM EDT 2026
+I am logged on as sciniscini
+This computer is called Lernieqa-rtx6k-018.crc.nd.edu
+4
+argc: 2
+arg: -solve_time=5
+pos: 11
+key: -solve_time
+val: 5
+setting solve time: 5
+argc: 2
+arg: -dt=0.01
+pos: 3
+key: -dt
+val: 0.01
+setting timestep: 0.01
+data struct file name = Data_Structures/Data_Structure.xml
+[Layers] A=457 B=2742 C=457 -> N_body=6 total layers=8
+Setting tau: 1
+Setting kbt: 1
+Setting linear const: 5
+Setting dt: 0.01
+Setting Tf:5
+Setting lambda_iso_in_DV_center:0.5
+Setting lambda_aniso_in_DV_center:0.5
+Setting lambda_iso_in_DV_edge:0.5
+Setting lambda_aniso_in_DV_edge:0.5
+Setting lambda_iso_out_DV_center:0.5
+Setting lambda_aniso_out_DV_center:0.5
+Setting lambda_iso_out_DV_edge:0.5
+Setting tol:1e-09
+Setting Rmin:1.5
+Apical nodes parsed successfully.
+Body nodes parsed successfully.
+Basal nodes parsed successfully.
+Apical Edges parsed successfully.
+Body Edges parsed successfully.
+Basal Edges parsed successfully.
+Vertical Edges parsed successfully.
+Elements parsed successfully.
+Element-to-edge mappings parsed successfully.
+Edge-to-element mappings parsed successfully.
+Initializing
+num nodes: 3656
+num edges: 40899
+num elems: 24952
+Invalid edges found and fixed: 0
+Copying
+fixed_node_in_host: 
+end_of_fixed_node_host_printout
+fixed_node_in_device: 
+end_of_fixed_node_device_printout
+size of host fixed 3656
+size of device fixed 3656
+Mem
+host edge_initial_length size = 40899
+device edge_initial_length size = 40899
+host edge_rest_length size = 40899
+device edge_rest_length size = 40899
+Host_nodeLocX size = 3656
+Host_nodeForceX size = 3656
+Host_triangles2Nodes size = 24952
+Host_triangles2Edges size = 24952
+Host_edges2Nodes size = 40899
+Host_edges2Triangles size = 40899
+System Ready
+solving system in main
+
+============================================================
+      DROSOPHILA WING DISC EVERSION SIMULATION
+============================================================
+BuildPrisms: Layer flags range from 0 to 7
+BuildPrisms: Apical layer = 7, Basal layer = 0
+BuildPrisms: Layer sizes:
+  Layer 0: 457 nodes
+  Layer 1: 457 nodes
+  Layer 2: 457 nodes
+  Layer 3: 457 nodes
+  Layer 4: 457 nodes
+  Layer 5: 457 nodes
+  Layer 6: 457 nodes
+  Layer 7: 457 nodes
+BuildPrisms: Created 3199 node mappings using index-based correspondence
+BuildPrisms: Sample mappings (upper -> lower):
+  Node 0 (layer 7) -> Node 457 (layer 6)
+  Node 1 (layer 7) -> Node 458 (layer 6)
+  Node 2 (layer 7) -> Node 459 (layer 6)
+  Node 3 (layer 7) -> Node 460 (layer 6)
+  Node 4 (layer 7) -> Node 461 (layer 6)
+  Node 5 (layer 7) -> Node 462 (layer 6)
+  Node 6 (layer 7) -> Node 463 (layer 6)
+  Node 7 (layer 7) -> Node 464 (layer 6)
+  Node 8 (layer 7) -> Node 465 (layer 6)
+  Node 9 (layer 7) -> Node 466 (layer 6)
+BuildPrisms: Created 5908 prisms
+  - Flipped for consistent orientation: 5908
+  - Skipped (no mapping): 0
+  - Skipped (degenerate): 0
+  - Skipped (wrong layer): 18200
+  SUCCESS: All prisms have positive volume
+  Total prism volume: 94987.9
+boundaries in upperhem = 40899
+edges2Triangles_1 = 40899
+edges2Triangles_2 = 40899
+
+=== BOUNDARY DETECTION DIAGNOSTIC ===
+Sample edges2Triangles values:
+  Edge 0: T1=2, T2=2 [BOUNDARY]
+  Edge 1: T1=7, T2=7 [BOUNDARY]
+  Edge 2: T1=2, T2=1
+  Edge 3: T1=1, T2=7
+  Edge 4: T1=0, T2=0 [BOUNDARY]
+  Edge 5: T1=4, T2=2
+  Edge 6: T1=0, T2=4
+  Edge 7: T1=10, T2=7
+  Edge 8: T1=10, T2=10 [BOUNDARY]
+  Edge 9: T1=14, T2=0
+  Edge 10: T1=14, T2=14 [BOUNDARY]
+  Edge 11: T1=1, T2=3
+  Edge 12: T1=6, T2=4
+  Edge 13: T1=3, T2=5
+  Edge 14: T1=5, T2=6
+  Edge 15: T1=12, T2=10
+  Edge 16: T1=3, T2=18
+  Edge 17: T1=12, T2=18
+  Edge 18: T1=14, T2=15
+  Edge 19: T1=6, T2=8
+
+Edge classification:
+  Total edges: 40899
+  Boundary edges (T1 == T2): 18744
+  Interior edges (T1 != T2): 22155
+  Invalid edges (skipped): 0
+
+Node status after boundary detection:
+  Fixed nodes: 3656/3656
+  Free nodes: 0
+=== END DIAGNOSTIC ===
+
+Mesh centroid: (-4.23682e-16, 3.78982e-17, 47.3937)
+Disc radius from apical layer (457 nodes): 59.0532
+Initial volume: 94987.9
+
+------------------------------------------------------------
+PHASE 1: Initial Relaxation (no strain)
+------------------------------------------------------------
+  Converged: iter=0, maxF=2.3745e-14
+Initial relaxation before node 0 pulling : 0 iterations
+Initial energy: 1.10441e-27
+
+------------------------------------------------------------
+PHASE 2: Computing Basis Vectors with DV Separation
+------------------------------------------------------------
+Detected mesh radius R = 77.6601
+
+============================================================
+DV BOUNDARY SEPARATION - Region Origins
+============================================================
+DV half-width: 14.9031
+Mesh center: (-4.23682e-16, 3.78982e-17, 47.3937)
+OD (Dorsal origin): (-4.44913e-16, -28.3682, 47.4474)
+OV (Ventral origin): (-4.44913e-16, 28.3682, 47.4474)
+Max radial distances:
+  Dorsal: 55.8913
+  Ventral: 55.8913
+  DV (rho): 14.8936
+============================================================
+
+Node Region Distribution:
+  Dorsal nodes: 1078
+  DV boundary nodes: 1500
+  Ventral nodes: 1078
+  Total: 3656
+Basis vectors computed and copied to device. N = 3656
+Basis vectors copied to LambdaField. N = 3656
+
+============================================================
+      BASIS VECTOR AND TENSOR DIAGNOSTICS
+============================================================
+
+--- Checking first 5 nodes ---
+
+Node 0:
+  e_R   = (0, -1, 0), |e_R| = 1
+  e_phi = (0.0673841, 0, 0.997727), |e_phi| = 1
+  e_h   = (-0.997727, 0, 0.0673841), |e_h| = 1
+  Orthogonality: e_R·e_phi=0, e_R·e_h=0, e_phi·e_h=0
+  Tensor L = [
+    [1.00189, 0, 0.027943]
+    [0, 1, 0]
+    [0.027943, 0, 1.41374]
+  ]
+  Error from Identity: diag_err=0.413739, offdiag_err=0.027943
+
+Node 1:
+  e_R   = (0, 1, 0), |e_R| = 1
+  e_phi = (-0.0673841, 0, -0.997727), |e_phi| = 1
+  e_h   = (-0.997727, 0, 0.0673841), |e_h| = 1
+  Orthogonality: e_R·e_phi=0, e_R·e_h=0, e_phi·e_h=0
+  Tensor L = [
+    [1.00189, 0, 0.027943]
+    [0, 1, 0]
+    [0.027943, 0, 1.41374]
+  ]
+  Error from Identity: diag_err=0.413739, offdiag_err=0.027943
+
+Node 2:
+  e_R   = (0, -1, 0), |e_R| = 1
+  e_phi = (0.0616631, 0, 0.998097), |e_phi| = 1
+  e_h   = (-0.998097, 0, 0.0616631), |e_h| = 1
+  Orthogonality: e_R·e_phi=0, e_R·e_h=0, e_phi·e_h=0
+  Tensor L = [
+    [1.00171, 0, 0.0277273]
+    [0, 1, 0]
+    [0.0277273, 0, 1.4488]
+  ]
+  Error from Identity: diag_err=0.448802, offdiag_err=0.0277273
+
+Node 3:
+  e_R   = (0, 1, 0), |e_R| = 1
+  e_phi = (-0.0616631, 0, -0.998097), |e_phi| = 1
+  e_h   = (-0.998097, 0, 0.0616631), |e_h| = 1
+  Orthogonality: e_R·e_phi=0, e_R·e_h=0, e_phi·e_h=0
+  Tensor L = [
+    [1.00171, 0, 0.0277273]
+    [0, 1, 0]
+    [0.0277273, 0, 1.4488]
+  ]
+  Error from Identity: diag_err=0.448802, offdiag_err=0.0277273
+
+Node 4:
+  e_R   = (0, 1, 0), |e_R| = 1
+  e_phi = (-0.129148, 0, -0.991625), |e_phi| = 1
+  e_h   = (-0.991625, 0, 0.129148), |e_h| = 1
+  Orthogonality: e_R·e_phi=0, e_R·e_h=0, e_phi·e_h=0
+  Tensor L = [
+    [1.00178, 0, 0.0136673]
+    [0, 1, 0]
+    [0.0136673, 0, 1.10494]
+  ]
+  Error from Identity: diag_err=0.104941, offdiag_err=0.0136673
+
+--- Checking ALL 3656 nodes ---
+  |e_R|:   min=1, max=1, avg=1
+  |e_phi|: min=1, max=1, avg=1
+  |e_h|:   min=1, max=1, avg=1
+  Nodes with zero-magnitude basis vectors: 0
+
+*** WARNING: Tensor deviates from identity by 0.448802 ***
+    With lambda=1, tensor should be identity!
+============================================================
+
+
+============================================================
+      LAMBDA VALUES AND STRAIN DIAGNOSTICS
+============================================================
+
+--- Lambda Parameters (from GeneralParams) ---
+Outside DV Region:
+  lambda_iso_center_outDV   = -0.294315
+  lambda_iso_edge_outDV     = 1.44256
+  lambda_aniso_center_outDV = 0.218231
+  lambda_aniso_edge_outDV   = 0.988748
+Inside DV Region:
+  lambda_iso_center_inDV    = -0.116925
+  lambda_iso_edge_inDV      = 1.21008
+  lambda_aniso_center_inDV  = -0.212715
+  lambda_aniso_edge_inDV    = 1.24178
+
+Geometry Parameters:
+  disc_radius = 59.0532
+  centerX     = -4.23682e-16
+  centerY     = 3.78982e-17
+  centerZ     = 47.3937
+
+--- Per-Vertex Lambda Field Statistics (N = 3656 vertices) ---
+  lambda_rr (radial):       min=-0.048901, max=1.42633, avg=0.562335
+  lambda_pp (circumfer.):   min=-0.681938, max=1.45898, avg=0.375475
+  lambda_ss (thickness):    min=1, max=1, avg=1
+  rho (normalized radius):  min=1.76542e-16, max=1, avg=0.519588
+============================================================
+  Strain mode: BOTH (outDV_identity=0, inDV_identity=0)
+
+============================================================
+      STRAIN STATISTICS (After Rest Length Update)
+============================================================
+
+--- Overall Strain Statistics (E = 40899 edges) ---
+  Engineering Strain = (L_final - L_init) / L_init
+  Min strain:  -0.978783 (-97.8783%)
+  Max strain:  0.361731 (36.1731%)
+  Avg strain:  -0.0547749 (-5.47749%)
+
+--- Stretch Ratio Statistics ---
+  Stretch Ratio = L_final / L_init
+  Min ratio:   0.0212169
+  Max ratio:   1.36173
+  Avg ratio:   0.945225
+
+--- Edge Classification ---
+  Edges with positive strain (tension):    754
+  Edges with negative strain (compress.):  9478
+  Edges with zero strain:                  30667
+  Horizontal edges (layer >= 0):           10400
+  Vertical edges (layer == -1):            30499
+
+--- Strain by Layer ---
+  Layer -1 (Vertical, n=30499): min=0%, max=0%, avg=0%
+  Layer 0 (Basal, n=1300): min=-95.679%, max=0%, avg=-21.9394%
+  Layer 1 (Body 1, n=1300): min=-80.2655%, max=16.9298%, avg=-16.2837%
+  Layer 2 (Body 2, n=1300): min=-87.8929%, max=12.2566%, avg=-21.7206%
+  Layer 3 (Body 3, n=1300): min=-97.7491%, max=5.756%, avg=-26.2853%
+  Layer 4 (Apical, n=1300): min=-96.597%, max=0%, avg=-29.1114%
+  Layer 5 (Body 5, n=1300): min=-97.8783%, max=0%, avg=-24.6868%
+  Layer 6 (Body 6, n=1300): min=-95.9928%, max=0%, avg=-21.9225%
+  Layer 7 (Body 7, n=1300): min=-70.5737%, max=36.1731%, avg=-10.3765%
+============================================================
+
+  Converged: iter=0, maxF=0.0174312
+Relax iter 0 Stage 0 | E = 0.047245 | Linear E = 0.047245 | Volume E = 0 | Mov = 7.63918e-313 | Volume = 94987.9 | Steps = 0
+  Converged: iter=0, maxF=0.0348623
+Relax iter 1 Stage 0 | E = 0.18898 | Linear E = 0.18898 | Volume E = 0 | Mov = 7.63918e-313 | Volume = 94987.9 | Steps = 0
+  Converged: iter=1, maxF=0.0426806
+Relax iter 2 Stage 0 | E = 0.417562 | Linear E = 0.417559 | Volume E = 2.99844e-06 | Mov = 7.63918e-313 | Volume = 94987.4 | Steps = 1
+  Converged: iter=2, maxF=0.0443408
+Relax iter 3 Stage 0 | E = 0.727163 | Linear E = 0.727132 | Volume E = 3.1761e-05 | Mov = 7.63918e-313 | Volume = 94986.2 | Steps = 2
+  Converged: iter=3, maxF=0.0482797
+Relax iter 4 Stage 0 | E = 1.11338 | Linear E = 1.11324 | Volume E = 0.000138455 | Mov = 7.63918e-313 | Volume = 94984.2 | Steps = 3
+  Converged: iter=5, maxF=0.0481478
+Relax iter 5 Stage 0 | E = 1.56339 | Linear E = 1.56291 | Volume E = 0.000480822 | Mov = 7.63918e-313 | Volume = 94981 | Steps = 5
+  Converged: iter=5, maxF=0.0495132
+Relax iter 6 Stage 0 | E = 2.09147 | Linear E = 2.09043 | Volume E = 0.00103778 | Mov = 7.63918e-313 | Volume = 94977.8 | Steps = 5
+  Converged: iter=6, maxF=0.0496216
+Relax iter 7 Stage 0 | E = 2.68433 | Linear E = 2.68232 | Volume E = 0.00200867 | Mov = 7.63918e-313 | Volume = 94973.8 | Steps = 6
+  Converged: iter=7, maxF=0.0489183
+Relax iter 8 Stage 0 | E = 3.3386 | Linear E = 3.33505 | Volume E = 0.00355924 | Mov = 7.63918e-313 | Volume = 94969.1 | Steps = 7
+  Converged: iter=7, maxF=0.0490858
+Relax iter 9 Stage 0 | E = 4.06342 | Linear E = 4.05783 | Volume E = 0.00558954 | Mov = 7.63918e-313 | Volume = 94964.3 | Steps = 7
+  Converged: iter=7, maxF=0.049684
+Relax iter 10 Stage 0 | E = 4.85719 | Linear E = 4.84904 | Volume E = 0.00815106 | Mov = 7.63918e-313 | Volume = 94959.4 | Steps = 7
+  Converged: iter=8, maxF=0.0492146
+Relax iter 11 Stage 0 | E = 5.70389 | Linear E = 5.69216 | Volume E = 0.0117355 | Mov = 7.63918e-313 | Volume = 94953.7 | Steps = 8
+  Converged: iter=8, maxF=0.0492935
+Relax iter 12 Stage 0 | E = 6.61674 | Linear E = 6.60069 | Volume E = 0.0160528 | Mov = 7.63918e-313 | Volume = 94947.9 | Steps = 8
+  Converged: iter=8, maxF=0.0496488
+Relax iter 13 Stage 0 | E = 7.59472 | Linear E = 7.57355 | Volume E = 0.0211671 | Mov = 7.63918e-313 | Volume = 94941.9 | Steps = 8
+  Converged: iter=9, maxF=0.0490178
+Relax iter 14 Stage 0 | E = 8.61891 | Linear E = 8.59105 | Volume E = 0.0278583 | Mov = 7.63918e-313 | Volume = 94935.2 | Steps = 9
+  Converged: iter=8, maxF=0.0499402
+Relax iter 15 Stage 0 | E = 9.72549 | Linear E = 9.69075 | Volume E = 0.0347445 | Mov = 7.63918e-313 | Volume = 94929 | Steps = 8
+  Converged: iter=9, maxF=0.0496474
+Relax iter 16 Stage 0 | E = 10.8747 | Linear E = 10.8311 | Volume E = 0.0435599 | Mov = 7.63918e-313 | Volume = 94921.9 | Steps = 9
+  Converged: iter=9, maxF=0.0496506
+Relax iter 17 Stage 0 | E = 12.086 | Linear E = 12.0325 | Volume E = 0.0535168 | Mov = 7.63918e-313 | Volume = 94914.8 | Steps = 9
+  Converged: iter=9, maxF=0.0498016
+Relax iter 18 Stage 0 | E = 13.359 | Linear E = 13.2944 | Volume E = 0.0646838 | Mov = 7.63918e-313 | Volume = 94907.5 | Steps = 9
+  Converged: iter=10, maxF=0.0490327
+Relax iter 19 Stage 0 | E = 14.6702 | Linear E = 14.5917 | Volume E = 0.0784357 | Mov = 7.63918e-313 | Volume = 94899.4 | Steps = 10
+  Converged: iter=9, maxF=0.0496222
+Relax iter 20 Stage 0 | E = 16.0664 | Linear E = 15.9742 | Volume E = 0.0921611 | Mov = 7.63918e-313 | Volume = 94891.9 | Steps = 9

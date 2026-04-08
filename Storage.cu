@@ -38,7 +38,7 @@ void Storage::print_VTK_File(void) {
 	  //std::string initial = "Animation_realistic/FINALLY_FLAT_";
     //std::string initial = "Animation_realistic/Simulations_with_flat_sheet_tests/some_boundary_tests_";
 		//std::string initial = "Animation_realistic/Double_Sheet_Testing/10_10_24_double_tau_0_kbt_0_01505_lin_1_9_area_1_bend_15_LJep_0_";
-    std::string initial = "Animation_realistic/_Volume_Linear_wL3_2hAPF_";
+    std::string initial = "Animation_realistic/04072026_j2/_Volume_Linear_wL3_2hAPF_";
     //1Vol_termination_off_Boundary_Updated_Weak_Region_Changed_Growth_Algorithm_on_8_26_24_changes_tracker_";
 		// std::string initial = "Animation_realistic/YB_recalibedAlt_L0d75B0d135_test1_5thtry_";
 		//std::string initial = "Regular_Simulation";

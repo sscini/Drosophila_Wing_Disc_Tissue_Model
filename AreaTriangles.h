@@ -27,6 +27,13 @@ struct AreaSpringFunctor {
     double* locYAddr;
     double* locZAddr;
 
+    // ================================================================
+    // NEW: pointer to per-node layer flags so we can skip cross-layer
+    // (vertical) triangles. Only triangles whose 3 nodes share the
+    // same layer index get area-spring forces.
+    // ================================================================
+    int* nodeLayerFlags;
+
     // Output arrays
     int* idKey;
     double* forceXAddr;
@@ -49,6 +56,7 @@ struct AreaSpringFunctor {
         double* _locXAddr,
         double* _locYAddr,
         double* _locZAddr,
+        int* _nodeLayerFlags,       // NEW parameter
         int* _idKey,
         double* _forceXAddr,
         double* _forceYAddr,
@@ -68,12 +76,13 @@ struct AreaSpringFunctor {
         locXAddr(_locXAddr),
         locYAddr(_locYAddr),
         locZAddr(_locZAddr),
+        nodeLayerFlags(_nodeLayerFlags),    // NEW
         idKey(_idKey),
         forceXAddr(_forceXAddr),
         forceYAddr(_forceYAddr),
         forceZAddr(_forceZAddr) {}
 
-	      // Operator for computing area triangle springs
+      // Operator for computing area triangle springs
         //hand in counting iterator and id of triangle
 	__device__ double operator()(const Tuuuuuuu &u7) {
         //test placing the ids of the nodes and then get positions. 
@@ -88,66 +97,37 @@ struct AreaSpringFunctor {
         int e_id_i = thrust::get<4>(u7);
         int e_id_j = thrust::get<5>(u7);
         int e_id_k = thrust::get<6>(u7);
-        double target_area;
+        
+        // FIX: Initialize with safe defaults to prevent NaN from
+        // uninitialized SCALE_TYPE (no default in GeneralParams).
+        double target_area = area_0;
+        double what_spring_constant = spring_constant;
         
         if ((id_i < (INT_MAX-100) && id_i >= 0) && (id_j < (INT_MAX-100) && id_j >= 0) && (id_k < (INT_MAX-100) && id_k >= 0)){   
-            double what_spring_constant;
-            if (SCALE_TYPE == 0){
-             what_spring_constant = spring_constant*((1.0 - ((1.0/sqrt(2*3.14159*gausssigma))*exp(-pow(scaling_per_edge[e_id_i],2.0)/gausssigma))) +
-                                            (1.0 - ((1.0/sqrt(2*3.14159*gausssigma))*exp(-pow(scaling_per_edge[e_id_j],2.0)/gausssigma))) +
-                                            (1.0 - ((1.0/sqrt(2*3.14159*gausssigma))*exp(-pow(scaling_per_edge[e_id_k],2.0)/gausssigma))))/3.0;
-                                            if (what_spring_constant < spring_constant_weak){what_spring_constant = spring_constant_weak;}
+            
+            // ================================================================
+            // SKIP CROSS-LAYER (VERTICAL) TRIANGLES
+            // Only compute area springs for triangles where all 3 nodes
+            // are on the same layer. Cross-layer triangles are structural
+            // connections between tissue layers, not surface elements —
+            // applying area conservation to them creates spurious forces
+            // that fight the inter-layer geometry.
+            // ================================================================
+            int layer_i = nodeLayerFlags[id_i];
+            int layer_j = nodeLayerFlags[id_j];
+            int layer_k = nodeLayerFlags[id_k];
+            
+            if (layer_i != layer_j || layer_i != layer_k) {
+                // Cross-layer triangle: write zero forces, return zero energy
+                idKey[place]     = id_i;
+                idKey[place + 1] = id_j;
+                idKey[place + 2] = id_k;
+                forceXAddr[place] = 0.0;  forceYAddr[place] = 0.0;  forceZAddr[place] = 0.0;
+                forceXAddr[place+1] = 0.0; forceYAddr[place+1] = 0.0; forceZAddr[place+1] = 0.0;
+                forceXAddr[place+2] = 0.0; forceYAddr[place+2] = 0.0; forceZAddr[place+2] = 0.0;
+                return 0.0;
             }
-            else if (SCALE_TYPE == 1){
-                 what_spring_constant = ((spring_constant_weak*2.0)*pow(scaling_per_edge[e_id_i],scaling_pow) + spring_constant_weak*(1-pow(scaling_per_edge[e_id_i],scaling_pow)) +
-                                            (spring_constant_weak*2.0)*pow(scaling_per_edge[e_id_j],scaling_pow) + spring_constant_weak*(1-pow(scaling_per_edge[e_id_j],scaling_pow)) +
-                                            (spring_constant_weak*2.0)*pow(scaling_per_edge[e_id_k],scaling_pow) + spring_constant_weak*(1-pow(scaling_per_edge[e_id_k],scaling_pow)))/3.0;
-                            }
-            else if (SCALE_TYPE == 2){
-                what_spring_constant = (spring_constant - (spring_constant - spring_constant_weak)*scaling_per_edge[e_id_i] +
-                                            spring_constant - (spring_constant - spring_constant_weak)*scaling_per_edge[e_id_j] +
-                                            spring_constant - (spring_constant - spring_constant_weak)*scaling_per_edge[e_id_k])/3.0;
-            }
-            else if (SCALE_TYPE == 3){        
-                if (triangles_in_upperhem[counter] == 1){
-                    what_spring_constant = spring_constant_weak;
-                    target_area = area_0*1.0;
-                }
-                else if (triangles_in_upperhem[counter] == 0){
-                    what_spring_constant = (spring_constant_weak + spring_constant)/2.0;
-                    target_area = area_0*1.0;
-                }
-                else{
-                    what_spring_constant = spring_constant;
-                    target_area = area_0*1.0;
-                }
-            }
-            else if (SCALE_TYPE == 4){
-                if (nonuniform_wall_weakening_area == true){
-                    //double scaling = 0.0;//spring_constant_weak/spring_constant;
-                    double spectrum = maxSpringScaler_area*spring_constant - spring_constant_weak;
-                    what_spring_constant = (spring_constant_weak + ((1.0/(1.0+pow(hilleqnconst/scaling_per_edge[e_id_i], hilleqnpow)))*spectrum) +
-                                            spring_constant_weak + ((1.0/(1.0+pow(hilleqnconst/scaling_per_edge[e_id_j], hilleqnpow)))*spectrum) +
-                                            spring_constant_weak + ((1.0/(1.0+pow(hilleqnconst/scaling_per_edge[e_id_k], hilleqnpow)))*spectrum))/3.0;
-                    if (what_spring_constant < spring_constant_weak){what_spring_constant = spring_constant_weak;}
-                    target_area = area_0*1.0;
-                }
-                else{
-                    if (triangles_in_upperhem[counter] == 1){// && triangles_in_tip[counter]==1){
-                        what_spring_constant = spring_constant_weak;
-                        target_area = area_0*1.0;
-                    }
-                    else if (triangles_in_upperhem[counter] == 0){// && triangles_in_tip[counter]!=1){
-                        //what_spring_constant = (spring_constant_weak*2.0);
-                        what_spring_constant = (spring_constant_weak + spring_constant)/2.0;
-                        target_area = area_0*1.0;
-                    }
-                    else{
-                        what_spring_constant = spring_constant;
-                        target_area = area_0*1.0;
-                    }
-                }
-		    }
+            // ================================================================
 
         
             // Calculate positions of the nodes
@@ -196,7 +176,8 @@ struct AreaSpringFunctor {
                 -thrust::get<1>(rkj), thrust::get<0>(rkj), 0.0);
                 //[-Rkj(2), Rkj(1), 0];
         
-            double magnitude = -((what_spring_constant) * (area_current - area_0)/area_0) / (2.0 * area_current) ;
+            // FIX: Use target_area consistently in both force and energy
+            double magnitude = -((what_spring_constant) * (area_current - target_area)/target_area) / (2.0 * area_current) ;
             CVec3 rj_force = CVec3_scalermult(magnitude, CVec3_plus( 
                 CVec3_scalermult(A1, A1Rj), CVec3_scalermult(A2, A2Rj), CVec3_scalermult(A3, A3Rj)));
                 // -(k/A0)*(AREA(i)-A0) * (A1*A1Rj(1) + A2*A2Rj(1) + A3*A3Rj(1))/(2*AREA(i));

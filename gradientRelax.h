@@ -42,3 +42,5 @@ int relaxUntilConvergedWithParams(
 //int relaxUntilConverged(System& system);
 //
 //#endif // GRADIENTRELAX_H_
+
+// remove the force relaxation. make it based on node movement

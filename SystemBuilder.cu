@@ -155,7 +155,7 @@ void computeBasisVectors(CoordInfoVecs& coords, HostSetInfoVecs& hostInfo,
         if (oa_len < 1e-10) oa_len = 1e-10;
         oax /= oa_len; oay /= oa_len; oaz /= oa_len;
         
-        // Project onto surface: e_R = e_OA - (e_h · e_OA) * e_h
+        // Project onto surface: e_R = e_OA - (e_h   e_OA) * e_h
         double eh_dot_eoa = hostInfo.e_h_x[i]*oax + hostInfo.e_h_y[i]*oay + hostInfo.e_h_z[i]*oaz;
         double er_x = oax - eh_dot_eoa * hostInfo.e_h_x[i];
         double er_y = oay - eh_dot_eoa * hostInfo.e_h_y[i];
@@ -166,7 +166,7 @@ void computeBasisVectors(CoordInfoVecs& coords, HostSetInfoVecs& hostInfo,
         hostInfo.e_R_y[i] = er_y / er_len;
         hostInfo.e_R_z[i] = er_z / er_len;
         
-        // e_phi = e_h × e_R
+        // e_phi = e_h   e_R
         hostInfo.e_phi_x[i] = hostInfo.e_h_y[i] * hostInfo.e_R_z[i] - hostInfo.e_h_z[i] * hostInfo.e_R_y[i];
         hostInfo.e_phi_y[i] = hostInfo.e_h_z[i] * hostInfo.e_R_x[i] - hostInfo.e_h_x[i] * hostInfo.e_R_z[i];
         hostInfo.e_phi_z[i] = hostInfo.e_h_x[i] * hostInfo.e_R_y[i] - hostInfo.e_h_y[i] * hostInfo.e_R_x[i];
@@ -215,6 +215,18 @@ std::shared_ptr<System> SystemBuilder::createSystem() {
 	host_ptr_System->linearSpringInfoVecs.spring_constant = defaultLinear_Const;
 	host_ptr_System->areaTriangleInfoVecs.spring_constant = defaultArea_Const;
 	host_ptr_System->bendingTriangleInfoVecs.spring_constant = defaultBending_Const;
+
+  // Region × Layer spring constants (10 parameters)
+  host_ptr_System->linearSpringInfoVecs.k_apical_dorsal   = default_k_apical_dorsal;
+  host_ptr_System->linearSpringInfoVecs.k_apical_ventral  = default_k_apical_ventral;
+  host_ptr_System->linearSpringInfoVecs.k_apical_DV       = default_k_apical_DV;
+  host_ptr_System->linearSpringInfoVecs.k_body_dorsal     = default_k_body_dorsal;
+  host_ptr_System->linearSpringInfoVecs.k_body_ventral    = default_k_body_ventral;
+  host_ptr_System->linearSpringInfoVecs.k_body_DV         = default_k_body_DV;
+  host_ptr_System->linearSpringInfoVecs.k_basal_dorsal    = default_k_basal_dorsal;
+  host_ptr_System->linearSpringInfoVecs.k_basal_ventral   = default_k_basal_ventral;
+  host_ptr_System->linearSpringInfoVecs.k_basal_DV        = default_k_basal_DV;
+  host_ptr_System->linearSpringInfoVecs.k_vertical        = default_k_vertical;
 
 	host_ptr_System->ljInfoVecs.epsilon_M = defaultLJ_Eps;
 	host_ptr_System->ljInfoVecs.Rmin_M = defaultLJ_Rmin;

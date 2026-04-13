@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include "System.h"
 #include "SystemStructures.h"
-//#include "AreaTriangles.h" // not needed
+#include "AreaTriangles.h" // not needed
 //#include "BendingTriangles.h"
 //#include "MemRepulsionSprings_universal.h"
 //#include "MemRepulsionSprings_local.h"
@@ -28,6 +28,7 @@
 #include "gradientRelax.h"
 
 #include <thrust/host_vector.h>
+#include <thrust/iterator/constant_iterator.h>
 #include <iostream>
 #include <algorithm>
 #include <cmath>
@@ -689,7 +690,7 @@ void System::Solve_Forces()
         coordInfoVecs,
         linearSpringInfoVecs);
 
-    // Compute forces and energy due to area springs. Nav commented out to test Active shape programming mesh type 02/27/2025  . Put back in 03/23/25
+//    // Compute forces and energy due to area springs. Nav commented out to test Active shape programming mesh type 02/27/2025  . Put back in 03/23/25
 //      	ComputeAreaTriangleSprings(
 //      		generalParams,
 //      		coordInfoVecs,
@@ -716,12 +717,12 @@ void System::Solve_Forces()
 //      		generalParams,
 //      		auxVecs);
 
-        ComputeVolume(
-          generalParams,
-          coordInfoVecs,
-          linearSpringInfoVecs,
-          ljInfoVecs,
-          prismInfoVecs);
+//        ComputeVolume(
+//          generalParams,
+//          coordInfoVecs,
+//          linearSpringInfoVecs,
+//          ljInfoVecs,
+//          prismInfoVecs);
           
           
 //        {
@@ -735,114 +736,114 @@ void System::Solve_Forces()
 //            }
 //        }
 
-          // Add this diagnostic code in Solve_Forces(), right after ComputeVolume():
-
-        static int debug_call_count = 0;
-        if (debug_call_count < 10 && generalParams.current_total_volume < 0) {
-            std::cout << "\n=== NEGATIVE VOLUME DEBUG (call " << debug_call_count << ") ===" << std::endl;
-            
-            const int P = prismInfoVecs.num_prisms;
-            const int N = (int)coordInfoVecs.nodeLocX.size();
-            
-            // Copy prism connectivity to host
-            thrust::host_vector<int> hP1 = prismInfoVecs.P1;
-            thrust::host_vector<int> hP2 = prismInfoVecs.P2;
-            thrust::host_vector<int> hP3 = prismInfoVecs.P3;
-            thrust::host_vector<int> hP4 = prismInfoVecs.P4;
-            thrust::host_vector<int> hP5 = prismInfoVecs.P5;
-            thrust::host_vector<int> hP6 = prismInfoVecs.P6;
-            
-            // Copy coordinates to host
-            std::vector<double> X(N), Y(N), Z(N);
-            for (int i = 0; i < N; ++i) {
-                X[i] = coordInfoVecs.nodeLocX[i];
-                Y[i] = coordInfoVecs.nodeLocY[i];
-                Z[i] = coordInfoVecs.nodeLocZ[i];
-            }
-            
-            // Lambda to compute 6*volume of tetrahedron
-            auto sixV_tet = [&](int i, int j, int k, int l) -> double {
-                double ux = X[i] - X[l], uy = Y[i] - Y[l], uz = Z[i] - Z[l];
-                double vx = X[j] - X[l], vy = Y[j] - Y[l], vz = Z[j] - Z[l];
-                double wx = X[k] - X[l], wy = Y[k] - Y[l], wz = Z[k] - Z[l];
-                double cx = vy * wz - vz * wy;
-                double cy = vz * wx - vx * wz;
-                double cz = vx * wy - vy * wx;
-                return ux * cx + uy * cy + uz * cz;
-            };
-            
-            int neg_count = 0;
-            double pos_sum = 0.0, neg_sum = 0.0;
-            
-            // Track first few negative prisms for detailed output
-            std::vector<int> first_negative_prisms;
-            
-            for (int p = 0; p < P; ++p) {
-                int a = hP1[p], b = hP2[p], c = hP3[p];
-                int A = hP4[p], B = hP5[p], C = hP6[p];
-                
-                // Same decomposition as VolumeComp.cu
-                double s1 = sixV_tet(b, c, A, a);
-                double s2 = sixV_tet(b, A, C, a);
-                double s3 = sixV_tet(A, B, C, a);
-                double vol = (s1 + s2 + s3) / 6.0;
-                
-                if (vol < 0) {
-                    neg_count++;
-                    neg_sum += vol;
-                    if (first_negative_prisms.size() < 5) {
-                        first_negative_prisms.push_back(p);
-                    }
-                } else {
-                    pos_sum += vol;
-                }
-            }
-            
-            std::cout << "Total prisms: " << P << std::endl;
-            std::cout << "Positive prisms: " << (P - neg_count) << ", sum = " << pos_sum << std::endl;
-            std::cout << "Negative prisms: " << neg_count << ", sum = " << neg_sum << std::endl;
-            std::cout << "Net volume: " << (pos_sum + neg_sum) << std::endl;
-            std::cout << "Reported volume: " << generalParams.current_total_volume << std::endl;
-            
-            // Print details of first few negative prisms
-            if (!first_negative_prisms.empty()) {
-                std::cout << "\nFirst negative prisms:" << std::endl;
-                thrust::host_vector<int> hLayer = generalParams.nodes_in_upperhem;
-                
-                for (int p : first_negative_prisms) {
-                    int a = hP1[p], b = hP2[p], c = hP3[p];
-                    int A = hP4[p], B = hP5[p], C = hP6[p];
-                    
-                    double s1 = sixV_tet(b, c, A, a);
-                    double s2 = sixV_tet(b, A, C, a);
-                    double s3 = sixV_tet(A, B, C, a);
-                    double vol = (s1 + s2 + s3) / 6.0;
-                    
-                    std::cout << "  Prism " << p << ": vol=" << vol << std::endl;
-                    std::cout << "    Top (a,b,c): " << a << "," << b << "," << c 
-                              << " layers: " << hLayer[a] << "," << hLayer[b] << "," << hLayer[c] << std::endl;
-                    std::cout << "    Bot (A,B,C): " << A << "," << B << "," << C 
-                              << " layers: " << hLayer[A] << "," << hLayer[B] << "," << hLayer[C] << std::endl;
-                    std::cout << "    Tet volumes: s1=" << s1/6.0 << " s2=" << s2/6.0 << " s3=" << s3/6.0 << std::endl;
-                    
-                    // Print node positions
-                    std::cout << "    Positions:" << std::endl;
-                    std::cout << "      a(" << a << "): " << X[a] << "," << Y[a] << "," << Z[a] << std::endl;
-                    std::cout << "      A(" << A << "): " << X[A] << "," << Y[A] << "," << Z[A] << std::endl;
-                }
-            }
-            
-            std::cout << "=== END DEBUG ===" << std::endl << std::endl;
-            debug_call_count++;
-        }
+//          // Add this diagnostic code in Solve_Forces(), right after ComputeVolume(): commented 03/12/26
+//
+//        static int debug_call_count = 0;
+//        if (debug_call_count < 10 && generalParams.current_total_volume < 0) {
+//            std::cout << "\n=== NEGATIVE VOLUME DEBUG (call " << debug_call_count << ") ===" << std::endl;
+//            
+//            const int P = prismInfoVecs.num_prisms;
+//            const int N = (int)coordInfoVecs.nodeLocX.size();
+//            
+//            // Copy prism connectivity to host
+//            thrust::host_vector<int> hP1 = prismInfoVecs.P1;
+//            thrust::host_vector<int> hP2 = prismInfoVecs.P2;
+//            thrust::host_vector<int> hP3 = prismInfoVecs.P3;
+//            thrust::host_vector<int> hP4 = prismInfoVecs.P4;
+//            thrust::host_vector<int> hP5 = prismInfoVecs.P5;
+//            thrust::host_vector<int> hP6 = prismInfoVecs.P6;
+//            
+//            // Copy coordinates to host
+//            std::vector<double> X(N), Y(N), Z(N);
+//            for (int i = 0; i < N; ++i) {
+//                X[i] = coordInfoVecs.nodeLocX[i];
+//                Y[i] = coordInfoVecs.nodeLocY[i];
+//                Z[i] = coordInfoVecs.nodeLocZ[i];
+//            }
+//            
+//            // Lambda to compute 6*volume of tetrahedron
+//            auto sixV_tet = [&](int i, int j, int k, int l) -> double {
+//                double ux = X[i] - X[l], uy = Y[i] - Y[l], uz = Z[i] - Z[l];
+//                double vx = X[j] - X[l], vy = Y[j] - Y[l], vz = Z[j] - Z[l];
+//                double wx = X[k] - X[l], wy = Y[k] - Y[l], wz = Z[k] - Z[l];
+//                double cx = vy * wz - vz * wy;
+//                double cy = vz * wx - vx * wz;
+//                double cz = vx * wy - vy * wx;
+//                return ux * cx + uy * cy + uz * cz;
+//            };
+//            
+//            int neg_count = 0;
+//            double pos_sum = 0.0, neg_sum = 0.0;
+//            
+//            // Track first few negative prisms for detailed output
+//            std::vector<int> first_negative_prisms;
+//            
+//            for (int p = 0; p < P; ++p) {
+//                int a = hP1[p], b = hP2[p], c = hP3[p];
+//                int A = hP4[p], B = hP5[p], C = hP6[p];
+//                
+//                // Same decomposition as VolumeComp.cu
+//                double s1 = sixV_tet(b, c, A, a);
+//                double s2 = sixV_tet(b, A, C, a);
+//                double s3 = sixV_tet(A, B, C, a);
+//                double vol = (s1 + s2 + s3) / 6.0;
+//                
+//                if (vol < 0) {
+//                    neg_count++;
+//                    neg_sum += vol;
+//                    if (first_negative_prisms.size() < 5) {
+//                        first_negative_prisms.push_back(p);
+//                    }
+//                } else {
+//                    pos_sum += vol;
+//                }
+//            }
+//            
+//            std::cout << "Total prisms: " << P << std::endl;
+//            std::cout << "Positive prisms: " << (P - neg_count) << ", sum = " << pos_sum << std::endl;
+//            std::cout << "Negative prisms: " << neg_count << ", sum = " << neg_sum << std::endl;
+//            std::cout << "Net volume: " << (pos_sum + neg_sum) << std::endl;
+//            std::cout << "Reported volume: " << generalParams.current_total_volume << std::endl;
+//            
+//            // Print details of first few negative prisms
+//            if (!first_negative_prisms.empty()) {
+//                std::cout << "\nFirst negative prisms:" << std::endl;
+//                thrust::host_vector<int> hLayer = generalParams.nodes_in_upperhem;
+//                
+//                for (int p : first_negative_prisms) {
+//                    int a = hP1[p], b = hP2[p], c = hP3[p];
+//                    int A = hP4[p], B = hP5[p], C = hP6[p];
+//                    
+//                    double s1 = sixV_tet(b, c, A, a);
+//                    double s2 = sixV_tet(b, A, C, a);
+//                    double s3 = sixV_tet(A, B, C, a);
+//                    double vol = (s1 + s2 + s3) / 6.0;
+//                    
+//                    std::cout << "  Prism " << p << ": vol=" << vol << std::endl;
+//                    std::cout << "    Top (a,b,c): " << a << "," << b << "," << c 
+//                              << " layers: " << hLayer[a] << "," << hLayer[b] << "," << hLayer[c] << std::endl;
+//                    std::cout << "    Bot (A,B,C): " << A << "," << B << "," << C 
+//                              << " layers: " << hLayer[A] << "," << hLayer[B] << "," << hLayer[C] << std::endl;
+//                    std::cout << "    Tet volumes: s1=" << s1/6.0 << " s2=" << s2/6.0 << " s3=" << s3/6.0 << std::endl;
+//                    
+//                    // Print node positions
+//                    std::cout << "    Positions:" << std::endl;
+//                    std::cout << "      a(" << a << "): " << X[a] << "," << Y[a] << "," << Z[a] << std::endl;
+//                    std::cout << "      A(" << A << "): " << X[A] << "," << Y[A] << "," << Z[A] << std::endl;
+//                }
+//            }
+//            
+//            std::cout << "=== END DEBUG ===" << std::endl << std::endl;
+//            debug_call_count++;
+//        }
     // Compute forces and energy due to volume springs. //(nav - commenting these out for now for flat surface 5/29/24) Nav had uncommented but she's bringing the comment back because testing out Active shape mesh 02/27/25
-      	ComputeVolumeSprings(
-      		coordInfoVecs,
-          linearSpringInfoVecs,
-          capsidInfoVecs,
-          generalParams,
-          //auxVecs,
-          prismInfoVecs);
+//      	ComputeVolumeSprings(
+//      		coordInfoVecs,
+//          linearSpringInfoVecs,
+//          capsidInfoVecs,
+//          generalParams,
+//          //auxVecs,
+//          prismInfoVecs);
     
     // Now print forces along the radial line
    // PrintForce();
@@ -1145,16 +1146,19 @@ void System::solveSystem()
     // Initialize all nodes as FREE
     thrust::fill(coordInfoVecs.isNodeFixed.begin(), coordInfoVecs.isNodeFixed.end(), false);
     
-    // Mark ONLY boundary nodes as fixed
     for (int i = 0; i < coordInfoVecs.num_edges; i++) {
         int T1 = static_cast<int>(coordInfoVecs.edges2Triangles_1[i]);
         int T2 = static_cast<int>(coordInfoVecs.edges2Triangles_2[i]);
-    
+        
+        // Skip vertical edges - they aren't boundary edges
+        int edgeLayer = static_cast<int>(generalParams.edges_in_upperhem[i]);
+        if (edgeLayer == -1) continue;  // <-- ADD THIS LINE
+        
         if (T1 < 0 || T2 < 0 || T1 >= (INT_MAX - 1000) || T2 >= (INT_MAX - 1000))
             continue;
         
         if (T1 == T2) {
-            // Boundary edge - fix these nodes
+            // Boundary edge
             generalParams.boundaries_in_lowerhem[i] = 1;
             boundary_edge_list.push_back(i);
             
@@ -1163,29 +1167,27 @@ void System::solveSystem()
             boundary_node_list.push_back(bdry_node1);
             boundary_node_list.push_back(bdry_node2);
             
-            coordInfoVecs.isNodeFixed[bdry_node1] = true;
-            coordInfoVecs.isNodeFixed[bdry_node2] = true;
+            coordInfoVecs.isNodeFixed[bdry_node1] = false;
+            coordInfoVecs.isNodeFixed[bdry_node2] = false;
         } else {
-            // Interior edge - just mark it, DON'T touch isNodeFixed
             generalParams.boundaries_in_upperhem[i] = -1;
         }
     }
     
+        // =============================================================================
+    // DIAGNOSTIC: Check edges2Triangles values
     // =============================================================================
-// DIAGNOSTIC: Check edges2Triangles values
-// =============================================================================
-// 
-// Add this diagnostic code RIGHT AFTER the boundary detection loop (after line 1179)
-// to understand why all nodes are being marked as fixed.
-//
-// The likely cause: edges2Triangles_1[i] == edges2Triangles_2[i] for ALL edges,
-// either because:
-// 1. The data wasn't loaded correctly from the XML
-// 2. Both arrays have the same default value (0 or -1)
-// 3. The edge-to-triangle mapping is incorrect
-// =============================================================================
+    // 
+    // Add this diagnostic code RIGHT AFTER the boundary detection loop (after line 1179)
+    // to understand why all nodes are being marked as fixed.
+    //
+    // The likely cause: edges2Triangles_1[i] == edges2Triangles_2[i] for ALL edges,
+    // either because:
+    // 1. The data wasn't loaded correctly from the XML
+    // 2. Both arrays have the same default value (0 or -1)
+    // 3. The edge-to-triangle mapping is incorrect
+    // =============================================================================
 
-// ADD THIS CODE after line 1179 (after the boundary detection loop closes)
 
     // ========== DIAGNOSTIC: Check boundary detection results ==========
     {
@@ -1432,6 +1434,59 @@ void System::solveSystem()
                   ljInfoVecs, prismInfoVecs);
     generalParams.eq_total_volume = generalParams.current_total_volume;
     std::cout << "Initial volume: " << generalParams.eq_total_volume << std::endl;
+    
+      
+       // ================================================================
+    // FIX: Compute actual initial_area from mesh geometry.
+    // The hardcoded default (0.0048) is wrong for this mesh where
+    // triangle areas are ~30. Using the wrong value creates enormous
+    // spurious compressive forces.
+    // ================================================================
+    {
+        double total_area = 0.0;
+        int valid_count = 0;
+        int cross_layer_count = 0;
+        thrust::host_vector<int> h_t1 = coordInfoVecs.triangles2Nodes_1;
+        thrust::host_vector<int> h_t2 = coordInfoVecs.triangles2Nodes_2;
+        thrust::host_vector<int> h_t3 = coordInfoVecs.triangles2Nodes_3;
+        // Node layer flags for filtering cross-layer triangles
+        thrust::host_vector<int> h_nlf = generalParams.nodes_in_upperhem;
+        for (int t = 0; t < (int)coordInfoVecs.num_triangles; t++) {
+            int ii = h_t1[t], jj = h_t2[t], kk = h_t3[t];
+            if (ii >= INT_MAX-100 || jj >= INT_MAX-100 || kk >= INT_MAX-100) continue;
+            if (ii < 0 || jj < 0 || kk < 0) continue;
+            // Skip cross-layer triangles (same filter as AreaSpringFunctor)
+            if (h_nlf[ii] != h_nlf[jj] || h_nlf[ii] != h_nlf[kk]) {
+                cross_layer_count++;
+                continue;
+            }
+            double ax = (double)coordInfoVecs.nodeLocX[jj] - (double)coordInfoVecs.nodeLocX[ii];
+            double ay = (double)coordInfoVecs.nodeLocY[jj] - (double)coordInfoVecs.nodeLocY[ii];
+            double az = (double)coordInfoVecs.nodeLocZ[jj] - (double)coordInfoVecs.nodeLocZ[ii];
+            double bx = (double)coordInfoVecs.nodeLocX[kk] - (double)coordInfoVecs.nodeLocX[ii];
+            double by = (double)coordInfoVecs.nodeLocY[kk] - (double)coordInfoVecs.nodeLocY[ii];
+            double bz = (double)coordInfoVecs.nodeLocZ[kk] - (double)coordInfoVecs.nodeLocZ[ii];
+            double cx_v = ay*bz - az*by;
+            double cy_v = az*bx - ax*bz;
+            double cz_v = ax*by - ay*bx;
+            double area = 0.5 * sqrt(cx_v*cx_v + cy_v*cy_v + cz_v*cz_v);
+            if (area > 1e-10) { total_area += area; valid_count++; }
+        }
+        if (valid_count > 0) {
+            areaTriangleInfoVecs.initial_area = total_area / valid_count;
+            std::cout << "Computed initial_area = "
+                      << areaTriangleInfoVecs.initial_area
+                      << " from " << valid_count << " same-layer triangles"
+                      << " (skipped " << cross_layer_count << " cross-layer)" << std::endl;
+        } else {
+            std::cout << "WARNING: Could not compute initial_area" << std::endl;
+        }
+    }
+
+    // ========================================================================
+    //               BUILD PER-EDGE SPRING CONSTANT ARRAY
+    // ========================================================================
+    buildEdgeSpringConstants();
 
     // ========================================================================
     //                       INITIAL RELAXATION
@@ -1446,14 +1501,16 @@ void System::solveSystem()
                  linearSpringInfoVecs.edge_initial_length.end(),
                  linearSpringInfoVecs.edge_rest_length.begin());
 
-    generalParams.tol = 1e-4;
+    generalParams.tol = 1e-5;
     int initial_relax_iters = relaxUntilConvergedWithParams(
     *this,
-    0.05,      // force_tolerance - stop when max|F| < 0.1
-    1e-3,     // displacement_tolerance (secondary)
-    10000,   // max_iterations
-    100);     // print every 1000 iterations
+    0.01,      // force_tolerance - stop when max|F| < 0.1
+    1e-8,     // displacement_tolerance (secondary)
+    50000,   // max_iterations
+    1000);     // print every 1000 iterations
 //    storage->print_VTK_File();
+//commented out bottom for local volume conservation. 03/09/26 - nav
+ //   ComputeEquilibriumPrismVolumes(coordInfoVecs, generalParams, prismInfoVecs);
 //    
 //    // After initial_relax_iters
 //    coordInfoVecs.nodeLocX[0] += 1.0;  // Perturb node 0
@@ -1462,12 +1519,58 @@ void System::solveSystem()
 //    int initial_relax_iters_1 = relaxUntilConverged(*this); 
 //    storage->print_VTK_File();
     double E_initial = linearSpringInfoVecs.linear_spring_energy;
+        // ================================================================
+    // FIX: Compute actual initial_area from mesh geometry.
+    // The hardcoded default (0.0048) is wrong for this mesh where
+    // triangle areas are ~30. Using the wrong value creates enormous
+    // spurious compressive forces.
+    // ================================================================
+    {
+        double total_area = 0.0;
+        int valid_count = 0;
+        int cross_layer_count = 0;
+        thrust::host_vector<int> h_t1 = coordInfoVecs.triangles2Nodes_1;
+        thrust::host_vector<int> h_t2 = coordInfoVecs.triangles2Nodes_2;
+        thrust::host_vector<int> h_t3 = coordInfoVecs.triangles2Nodes_3;
+        // Node layer flags for filtering cross-layer triangles
+        thrust::host_vector<int> h_nlf = generalParams.nodes_in_upperhem;
+        for (int t = 0; t < (int)coordInfoVecs.num_triangles; t++) {
+            int ii = h_t1[t], jj = h_t2[t], kk = h_t3[t];
+            if (ii >= INT_MAX-100 || jj >= INT_MAX-100 || kk >= INT_MAX-100) continue;
+            if (ii < 0 || jj < 0 || kk < 0) continue;
+            // Skip cross-layer triangles (same filter as AreaSpringFunctor)
+            if (h_nlf[ii] != h_nlf[jj] || h_nlf[ii] != h_nlf[kk]) {
+                cross_layer_count++;
+                continue;
+            }
+            double ax = (double)coordInfoVecs.nodeLocX[jj] - (double)coordInfoVecs.nodeLocX[ii];
+            double ay = (double)coordInfoVecs.nodeLocY[jj] - (double)coordInfoVecs.nodeLocY[ii];
+            double az = (double)coordInfoVecs.nodeLocZ[jj] - (double)coordInfoVecs.nodeLocZ[ii];
+            double bx = (double)coordInfoVecs.nodeLocX[kk] - (double)coordInfoVecs.nodeLocX[ii];
+            double by = (double)coordInfoVecs.nodeLocY[kk] - (double)coordInfoVecs.nodeLocY[ii];
+            double bz = (double)coordInfoVecs.nodeLocZ[kk] - (double)coordInfoVecs.nodeLocZ[ii];
+            double cx_v = ay*bz - az*by;
+            double cy_v = az*bx - ax*bz;
+            double cz_v = ax*by - ay*bx;
+            double area = 0.5 * sqrt(cx_v*cx_v + cy_v*cy_v + cz_v*cz_v);
+            if (area > 1e-10) { total_area += area; valid_count++; }
+        }
+        if (valid_count > 0) {
+            areaTriangleInfoVecs.initial_area = total_area / valid_count;
+            std::cout << "Computed initial_area = "
+                      << areaTriangleInfoVecs.initial_area
+                      << " from " << valid_count << " same-layer triangles"
+                      << " (skipped " << cross_layer_count << " cross-layer)" << std::endl;
+        } else {
+            std::cout << "WARNING: Could not compute initial_area" << std::endl;
+        }
+    }
     std::cout << "Initial relaxation before node 0 pulling : " << initial_relax_iters << " iterations" << std::endl;
    // std::cout << "Initial relaxation after node 0 pulling : " << initial_relax_iters_1 << " iterations" << std::endl;
     std::cout << "Initial energy: " << E_initial << std::endl;
 
     storage->print_VTK_File();
-
+  
 
     // ========================================================================
     //            COMPUTE BASIS VECTORS WITH DV SEPARATION
@@ -1552,15 +1655,15 @@ void System::solveSystem()
         double frac = 1.0;   // full-field application per stage
         
         // Strain field (lambda) values in inDV and outDV regions at different stages of eversion. 
-        generalParams.lambda_iso_center_outDV = -0.29431527;//-0.12406004;  // wl3-0hAPF (-0.12406004) | wl3-2hAPF (-0.29431527) | wl3-4hAPF (-0.20050286)
-        generalParams.lambda_iso_edge_outDV =  1.44256030;//1.20789496;     // wl3-0hAPF ( 1.20789496) | wl3-2hAPF ( 1.44256030) | wl3-4hAPF ( 1.43479468)
-        generalParams.lambda_aniso_center_outDV =  0.21823128;//-0.06172103;// wl3-0hAPF (-0.06172103) | wl3-2hAPF ( 0.21823128) | wl3-4hAPF ( 0.29444448)
-        generalParams.lambda_aniso_edge_outDV = 0.98874841; //1.01053997;   // wl3-0hAPF ( 1.01053997) | wl3-2hAPF ( 0.98874841) | wl3-4hAPF ( 0.97652462)
+        generalParams.lambda_iso_center_outDV = 1.4348;//-0.20050286;//-0.12406004;  // wl3-0hAPF (-0.12406004) | wl3-2hAPF (-0.29431527) | wl3-4hAPF (-0.20050286)
+        generalParams.lambda_iso_edge_outDV = 1.2343; // 1.43479468;//1.20789496;     // wl3-0hAPF ( 1.20789496) | wl3-2hAPF ( 1.44256030) | wl3-4hAPF ( 1.43479468)
+        generalParams.lambda_aniso_center_outDV = 0.9765; // 0.2944444;//-0.06172103;// wl3-0hAPF (-0.06172103) | wl3-2hAPF ( 0.21823128) | wl3-4hAPF ( 0.29444448)
+        generalParams.lambda_aniso_edge_outDV = 1.2710; // 0.97652462; //1.01053997;   // wl3-0hAPF ( 1.01053997) | wl3-2hAPF ( 0.98874841) | wl3-4hAPF ( 0.97652462)
         
-        generalParams.lambda_iso_center_inDV = -0.11692544;//-0.09848994; //    wl3-0hAPF (-0.09848994) | wl3-2hAPF (-0.11692544) | wl3-4hAPF (-0.06151876)
-        generalParams.lambda_iso_edge_inDV = 1.21007540;  //1.18401136;//       wl3-0hAPF ( 1.18401136) | wl3-2hAPF ( 1.21007540) | wl3-4hAPF ( 1.47472744)
-        generalParams.lambda_aniso_center_inDV = -0.21271504;//-0.12904887; //  wl3-0hAPF (-0.12904887) | wl3-2hAPF (-0.21271504) | wl3-4hAPF (-0.30567972)
-        generalParams.lambda_aniso_edge_inDV = 1.24178074;  //1.03128453; //    wl3-0hAPF ( 1.03128453) | wl3-2hAPF ( 1.24178074) | wl3-4hAPF ( 1.29370391)
+        generalParams.lambda_iso_center_inDV = 1.4747; //-0.06151876;//-0.09848994; //    wl3-0hAPF (-0.09848994) | wl3-2hAPF (-0.11692544) | wl3-4hAPF (-0.06151876)
+        generalParams.lambda_iso_edge_inDV = 1.4132;//1.47472744;  //1.18401136;//       wl3-0hAPF ( 1.18401136) | wl3-2hAPF ( 1.21007540) | wl3-4hAPF ( 1.47472744)
+        generalParams.lambda_aniso_center_inDV = 1.2937;//-0.30567972;//-0.12904887; //  wl3-0hAPF (-0.12904887) | wl3-2hAPF (-0.21271504) | wl3-4hAPF (-0.30567972)
+        generalParams.lambda_aniso_edge_inDV =0.9880;// 1.29370391;  //1.03128453; //    wl3-0hAPF ( 1.03128453) | wl3-2hAPF ( 1.24178074) | wl3-4hAPF ( 1.29370391)
         
         
         // NOW build the lambda field (it will use the basis vectors we just copied)
@@ -1736,12 +1839,10 @@ void System::solveSystem()
     //              STRAIN TENSOR STAGES
     // ============================================
 
-    int stages = 2;//generalParams.Tf;
+    int stages = 1;//generalParams.Tf;
     
     linearSpringInfoVecs.edge_rest_length = linearSpringInfoVecs.edge_initial_length; // copy initial lengths to the rest length vector. 
 
-    for (int stage = 0; stage < stages; stage++)
-    {
         
         
         // -- load lambda values for this stage --
@@ -1960,71 +2061,147 @@ void System::solveSystem()
               
               std::cout << std::string(60, '=') << std::endl << std::endl;
           }
-
-        //StrainTensorGPU::updateEdgeRestLengths(coordInfoVecs, generalParams, lambda, linearSpringInfoVecs, layerflag);
-
-        // Relaxation parameters
-        //generalParams.tol = 1e-4;
-        int Nsteps = 1000; // this should be equal to the inverse of tolerance
-
-        // ============================================
-        //     GRADIENT RELAXATION LOOP
-        // ============================================
         
-        for (int iter = 0; iter < Nsteps; iter++)
+
+    stages = 5;
+        int Nsteps = 20;
+        int E = coordInfoVecs.num_edges;
+        // Compute per-substep delta: (edge_final - edge_initial) / (stages * Nsteps)
+        // Stored once, reused every substep within a stage.
+        // Recomputed each stage because edge_initial updates.
+        thrust::device_vector<double> substep_delta(E);
+    // substep_delta = (edge_final - edge_initial) / (stages * Nsteps)
+    
+            double divisor = double(stages) * double(Nsteps);
+    
+            thrust::transform(
+    
+                linearSpringInfoVecs.edge_final_length.begin(),
+    
+                linearSpringInfoVecs.edge_final_length.end(),
+    
+                linearSpringInfoVecs.edge_initial_length.begin(),
+    
+                substep_delta.begin(),
+    
+                thrust::minus<double>());
+    
+            // substep_delta now = edge_final - edge_initial
+    
+            // Scale by 1/divisor
+    
+            thrust::transform(
+    
+                substep_delta.begin(),
+    
+                substep_delta.end(),
+    
+                thrust::make_constant_iterator(divisor),
+    
+                substep_delta.begin(),
+    
+                thrust::divides<double>());
+    
+    for (int stage = 0; stage < stages; stage++)
         {
-//            // linearly increment rest lengths if doing time sweep
-//            for (int e = 0; e < coordInfoVecs.num_edges; e++) {
-//                double dl = (linearSpringInfoVecs.edge_final_length[e] -
-//                             linearSpringInfoVecs.edge_initial_length[e]) / double(Nsteps);
-//                linearSpringInfoVecs.edge_rest_length[e] += dl;
-//            }
-            double t = (iter + 1.0) / double(Nsteps);
-            dim3 grid((coordInfoVecs.num_edges + 255) / 256);
-            k_interpolateRestLength<<<grid, 256>>>(
-                coordInfoVecs.num_edges,
-                thrust::raw_pointer_cast(linearSpringInfoVecs.edge_initial_length.data()),
-                thrust::raw_pointer_cast(linearSpringInfoVecs.edge_final_length.data()),
-                thrust::raw_pointer_cast(linearSpringInfoVecs.edge_rest_length.data()),
-                t);
-            cudaDeviceSynchronize();
-            // In System.cu:
-            int k = relaxUntilConvergedWithParams(
-                *this,
-                0.05,      // force_tolerance - stop when max|F| < 0.1
-                1e-4,     // displacement_tolerance (secondary)
-                10000,   // max_iterations
-                10);    // print every 1000 iterations
-            
-            //verifyForceDecomposition();
-            
-            double E = linearSpringInfoVecs.linear_spring_energy+generalParams.volume_energy;
-            std::cout << "Relax iter " << iter 
-                      << " Stage " << stage 
-                      << " | E = " << E 
-                      << " | Linear E = " << linearSpringInfoVecs.linear_spring_energy
-                      << " | Volume E = " << generalParams.volume_energy
-                      << " | Mov = " << generalParams.dx 
-                      << " | Volume = " << generalParams.current_total_volume
-                      << " | Steps = " << k << std::endl;
-
-            if (iter % 5 == 0)
-                storage->print_VTK_File();
-                
-//            BuildPrismsFromLayerFlags(
-//              generalParams,
-//              coordInfoVecs,
-//              prismInfoVecs);
+            for (int iter = 0; iter < Nsteps; iter++)
+            {
+                // edge_rest += substep_delta
+                thrust::transform(
+                    linearSpringInfoVecs.edge_rest_length.begin(),
+                    linearSpringInfoVecs.edge_rest_length.end(),
+                    substep_delta.begin(),
+                    linearSpringInfoVecs.edge_rest_length.begin(),
+                    thrust::plus<double>());
+                int k = relaxUntilConvergedWithParams(
+                    *this,
+                    0.01,
+                    1e-8,
+                    50000,
+                    1000);
+                double E_total = linearSpringInfoVecs.linear_spring_energy
+                               + generalParams.volume_energy;
+                std::cout << "Stage " << stage << "/" << stages
+                          << " step " << iter << "/" << Nsteps
+                          << " | E = " << E_total
+                          << " | Linear E = " << linearSpringInfoVecs.linear_spring_energy
+                          //<< " | Volume E = " << generalParams.volume_energy
+                          //<< " | Area E = " << areaTriangleInfoVecs.area_triangle_energy
+                          << " | Mov = " << generalParams.dx
+                          << " | Volume = " << generalParams.current_total_volume
+                          << " | Relax steps = " << k << std::endl;
+                if (iter % 1 == 0)
+                    storage->print_VTK_File();
+            }
+            // After this stage: update initial to current rest
+            // linearSpringInfoVecs.edge_initial_length = linearSpringInfoVecs.edge_rest_length;
+            storage->print_VTK_File();
         }
-//        std::cout //"Relax iter " << iter 
-//                      << " Stage " << stage 
-//                      //<< " | E = " << E 
-//                      << " | Mov = " << generalParams.dx 
-//                      << " | Volume = " << generalParams.current_total_volume << std::endl;
+// Below is the previous working loop for eversion application. Commented out on 03/09/2026
 
-        storage->print_VTK_File();
-        linearSpringInfoVecs.edge_initial_length = linearSpringInfoVecs.edge_rest_length;
-    }
+        
+//    for (int stage = 0; stage < stages; stage++)
+//    {
+//        //StrainTensorGPU::updateEdgeRestLengths(coordInfoVecs, generalParams, lambda, linearSpringInfoVecs, layerflag);
+//        // Relaxation parameters
+//        //generalParams.tol = 1e-4;
+//        int Nsteps = 100000; // this should be equal to the inverse of tolerance
+//
+//        // ============================================
+//        //     GRADIENT RELAXATION LOOP
+//        // ============================================ 
+//        for (int iter = 0; iter < Nsteps; iter++)
+//        {
+////            // linearly increment rest lengths if doing time sweep
+////            for (int e = 0; e < coordInfoVecs.num_edges; e++) {
+////                double dl = (linearSpringInfoVecs.edge_final_length[e] -
+////                             linearSpringInfoVecs.edge_initial_length[e]) / double(Nsteps);
+////                linearSpringInfoVecs.edge_rest_length[e] += dl;
+////            }
+//            double t = (iter + 1.0) / double(Nsteps);
+//            dim3 grid((coordInfoVecs.num_edges + 255) / 256);
+//            k_interpolateRestLength<<<grid, 256>>>(
+//                coordInfoVecs.num_edges,
+//                thrust::raw_pointer_cast(linearSpringInfoVecs.edge_initial_length.data()),
+//                thrust::raw_pointer_cast(linearSpringInfoVecs.edge_final_length.data()),
+//                thrust::raw_pointer_cast(linearSpringInfoVecs.edge_rest_length.data()),
+//                t);
+//            cudaDeviceSynchronize();
+//            // In System.cu:
+//            int k = relaxUntilConvergedWithParams(
+//                *this,
+//                0.05,      // force_tolerance - stop when max|F| < 0.1
+//                1e-4,     // displacement_tolerance (secondary)
+//                10000,   // max_iterations
+//                100);    // print every 1000 iterations
+//            
+//            //verifyForceDecomposition();
+//            
+//            double E = linearSpringInfoVecs.linear_spring_energy+generalParams.volume_energy;
+//            std::cout << "Relax iter " << iter 
+//                      << " Stage " << stage 
+//                      << " | E = " << E 
+//                      << " | Linear E = " << linearSpringInfoVecs.linear_spring_energy
+//                      << " | Volume E = " << generalParams.volume_energy
+//                      //<< " | Area E = " << areaTriangleInfoVecs.area_triangle_energy
+//                      << " | Mov = " << generalParams.dx 
+//                      << " | Volume = " << generalParams.current_total_volume
+//                      << " | Steps = " << k << std::endl;
+//            if (iter % 100 == 0)
+//                storage->print_VTK_File();               
+////            BuildPrismsFromLayerFlags(
+////              generalParams,
+////              coordInfoVecs,
+////              prismInfoVecs);
+//        }
+////        std::cout //"Relax iter " << iter 
+////                      << " Stage " << stage 
+////                      //<< " | E = " << E 
+////                      << " | Mov = " << generalParams.dx 
+////                      << " | Volume = " << generalParams.current_total_volume << std::endl;
+//        storage->print_VTK_File();
+//        linearSpringInfoVecs.edge_initial_length = linearSpringInfoVecs.edge_rest_length;
+//    }
     std::cout << std::string(60, '=') << std::endl;
 }
 
@@ -2059,7 +2236,7 @@ void System::initializeSystem(HostSetInfoVecs & hostSetInfoVecs)
     // simplest safe default: all ones
     thrust::fill(coordInfoVecs.scaling_per_edge.begin(),
                  coordInfoVecs.scaling_per_edge.end(), 1.0);
-
+    
    
     coordInfoVecs.isNodeFixed.resize(mem_prealloc * hostSetInfoVecs.nodeLocX.size(), false);
     coordInfoVecs.prevNodeLocX.resize(mem_prealloc * hostSetInfoVecs.nodeLocX.size());
@@ -2279,6 +2456,25 @@ void System::initializeSystem(HostSetInfoVecs & hostSetInfoVecs)
     linearSpringInfoVecs.tempNodeForceXReduced.resize(mem_prealloc * linearSpringInfoVecs.factor * coordInfoVecs.num_edges);
     linearSpringInfoVecs.tempNodeForceYReduced.resize(mem_prealloc * linearSpringInfoVecs.factor * coordInfoVecs.num_edges);
     linearSpringInfoVecs.tempNodeForceZReduced.resize(mem_prealloc * linearSpringInfoVecs.factor * coordInfoVecs.num_edges);
+    
+    // ===== Area Triangle temp vectors =====
+    areaTriangleInfoVecs.tempNodeIdUnreduced.resize(
+        mem_prealloc * areaTriangleInfoVecs.factor * coordInfoVecs.num_triangles);
+    areaTriangleInfoVecs.tempNodeForceXUnreduced.resize(
+        mem_prealloc * areaTriangleInfoVecs.factor * coordInfoVecs.num_triangles);
+    areaTriangleInfoVecs.tempNodeForceYUnreduced.resize(
+        mem_prealloc * areaTriangleInfoVecs.factor * coordInfoVecs.num_triangles);
+    areaTriangleInfoVecs.tempNodeForceZUnreduced.resize(
+        mem_prealloc * areaTriangleInfoVecs.factor * coordInfoVecs.num_triangles);
+    
+    areaTriangleInfoVecs.tempNodeIdReduced.resize(
+        mem_prealloc * areaTriangleInfoVecs.factor * coordInfoVecs.num_triangles);
+    areaTriangleInfoVecs.tempNodeForceXReduced.resize(
+        mem_prealloc * areaTriangleInfoVecs.factor * coordInfoVecs.num_triangles);
+    areaTriangleInfoVecs.tempNodeForceYReduced.resize(
+        mem_prealloc * areaTriangleInfoVecs.factor * coordInfoVecs.num_triangles);
+    areaTriangleInfoVecs.tempNodeForceZReduced.resize(
+        mem_prealloc * areaTriangleInfoVecs.factor * coordInfoVecs.num_triangles);
 
     // Clear edge_initial_length vector for linear springs.
     // linearSpringInfoVecs.edge_initial_length.clear();
@@ -2392,7 +2588,116 @@ void System::initializeSystem(HostSetInfoVecs & hostSetInfoVecs)
 };
 
 
+// ============================================================================
+// buildEdgeSpringConstants()
+//
+// Builds the per-edge spring constant array from the 10 region×layer
+// parameters. Every edge gets classified by BOTH its layer AND its D/V
+// region (using the Y-coordinates of its two endpoint nodes).
+//
+// Classification table:
+//   Layer          D/V Region          Constant Used
+//   ─────          ──────────          ─────────────
+//   -1 (vertical)  (any)               k_vertical
+//    0 (basal)     both Y<0            k_basal_dorsal
+//                  both Y>0            k_basal_ventral
+//                  straddle Y=0        k_basal_DV
+//   1..N (body)    both Y<0            k_body_dorsal
+//                  both Y>0            k_body_ventral
+//                  straddle Y=0        k_body_DV
+//   N+1 (apical)   both Y<0            k_apical_dorsal
+//                  both Y>0            k_apical_ventral
+//                  straddle Y=0        k_apical_DV
+// ============================================================================
+void System::buildEdgeSpringConstants()
+{
+    const int E = coordInfoVecs.num_edges;
+    const int N = generalParams.num_layers;  // number of body layers
+    const int apicalLayer = N + 1;
 
+    // Pull data to host
+    thrust::host_vector<int>    h_layer = generalParams.edges_in_upperhem;
+    thrust::host_vector<int>    h_e1    = coordInfoVecs.edges2Nodes_1;
+    thrust::host_vector<int>    h_e2    = coordInfoVecs.edges2Nodes_2;
+    thrust::host_vector<double> h_yPos  = coordInfoVecs.nodeLocY;
 
+    thrust::host_vector<double> h_k(E);
 
+    // Counters for diagnostic summary
+    int cnt_ap_d=0, cnt_ap_v=0, cnt_ap_dv=0;
+    int cnt_bo_d=0, cnt_bo_v=0, cnt_bo_dv=0;
+    int cnt_ba_d=0, cnt_ba_v=0, cnt_ba_dv=0;
+    int cnt_vert=0;
+
+    for (int e = 0; e < E; e++) {
+        int layer = h_layer[e];
+
+        if (layer == -1) {
+            // Vertical edge
+            h_k[e] = linearSpringInfoVecs.k_vertical;
+            cnt_vert++;
+            continue;
+        }
+
+        // Classify D/V region from endpoint Y coordinates
+        int n1 = h_e1[e];
+        int n2 = h_e2[e];
+        double y1 = h_yPos[n1];
+        double y2 = h_yPos[n2];
+
+        // 0 = dorsal, 1 = ventral, 2 = DV boundary
+        int dv_region;
+        if (y1 < 0.0 && y2 < 0.0)      dv_region = 0;  // dorsal
+        else if (y1 > 0.0 && y2 > 0.0)  dv_region = 1;  // ventral
+        else                              dv_region = 2;  // DV boundary
+
+        if (layer == apicalLayer) {
+            // Apical layer
+            if      (dv_region == 0) { h_k[e] = linearSpringInfoVecs.k_apical_dorsal;  cnt_ap_d++; }
+            else if (dv_region == 1) { h_k[e] = linearSpringInfoVecs.k_apical_ventral; cnt_ap_v++; }
+            else                     { h_k[e] = linearSpringInfoVecs.k_apical_DV;      cnt_ap_dv++; }
+        }
+        else if (layer == 0) {
+            // Basal layer
+            if      (dv_region == 0) { h_k[e] = linearSpringInfoVecs.k_basal_dorsal;  cnt_ba_d++; }
+            else if (dv_region == 1) { h_k[e] = linearSpringInfoVecs.k_basal_ventral; cnt_ba_v++; }
+            else                     { h_k[e] = linearSpringInfoVecs.k_basal_DV;      cnt_ba_dv++; }
+        }
+        else {
+            // Body layers (1..N)
+            if      (dv_region == 0) { h_k[e] = linearSpringInfoVecs.k_body_dorsal;  cnt_bo_d++; }
+            else if (dv_region == 1) { h_k[e] = linearSpringInfoVecs.k_body_ventral; cnt_bo_v++; }
+            else                     { h_k[e] = linearSpringInfoVecs.k_body_DV;      cnt_bo_dv++; }
+        }
+    }
+
+    // Copy to GPU
+    linearSpringInfoVecs.edge_spring_k = h_k;
+
+    // Print summary
+    int total = cnt_ap_d+cnt_ap_v+cnt_ap_dv + cnt_bo_d+cnt_bo_v+cnt_bo_dv +
+                cnt_ba_d+cnt_ba_v+cnt_ba_dv + cnt_vert;
+
+    std::cout << "\n=== Per-Edge Spring Constant Assignment (Layer × D/V) ===" << std::endl;
+    std::cout << "  Total edges: " << E << std::endl;
+    std::cout << std::endl;
+    std::cout << "  APICAL (layer " << apicalLayer << "):" << std::endl;
+    std::cout << "    Dorsal  (k=" << linearSpringInfoVecs.k_apical_dorsal  << "): " << cnt_ap_d << std::endl;
+    std::cout << "    Ventral (k=" << linearSpringInfoVecs.k_apical_ventral << "): " << cnt_ap_v << std::endl;
+    std::cout << "    DV bnd  (k=" << linearSpringInfoVecs.k_apical_DV     << "): " << cnt_ap_dv << std::endl;
+    std::cout << std::endl;
+    std::cout << "  BODY (layers 1.." << N << "):" << std::endl;
+    std::cout << "    Dorsal  (k=" << linearSpringInfoVecs.k_body_dorsal  << "): " << cnt_bo_d << std::endl;
+    std::cout << "    Ventral (k=" << linearSpringInfoVecs.k_body_ventral << "): " << cnt_bo_v << std::endl;
+    std::cout << "    DV bnd  (k=" << linearSpringInfoVecs.k_body_DV     << "): " << cnt_bo_dv << std::endl;
+    std::cout << std::endl;
+    std::cout << "  BASAL (layer 0):" << std::endl;
+    std::cout << "    Dorsal  (k=" << linearSpringInfoVecs.k_basal_dorsal  << "): " << cnt_ba_d << std::endl;
+    std::cout << "    Ventral (k=" << linearSpringInfoVecs.k_basal_ventral << "): " << cnt_ba_v << std::endl;
+    std::cout << "    DV bnd  (k=" << linearSpringInfoVecs.k_basal_DV     << "): " << cnt_ba_dv << std::endl;
+    std::cout << std::endl;
+    std::cout << "  VERTICAL (layer -1, k=" << linearSpringInfoVecs.k_vertical << "): " << cnt_vert << std::endl;
+    std::cout << "  Sum: " << total << std::endl;
+    std::cout << "========================================================\n" << std::endl;
+}
 

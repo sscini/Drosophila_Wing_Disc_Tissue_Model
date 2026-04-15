@@ -1,5 +1,3 @@
-
-
 #ifndef SYSTEM_H_
 #define SYSTEM_H_
 
@@ -28,7 +26,7 @@
 #include <thrust/sequence.h>
 
 using CVec3   = thrust::tuple<double,double,double>;    // 3-component vector
-using Mat_3x3 = thrust::tuple<CVec3,CVec3,CVec3>;       // 3×3 matrix (row-major)
+using Mat_3x3 = thrust::tuple<CVec3,CVec3,CVec3>;       // 3?3 matrix (row-major)
 
 // Struct to store information related to the capsid (virus shell) nodes.
 struct CapsidInfoVecs {
@@ -94,6 +92,8 @@ struct PrismInfoVecs {
     thrust::device_vector<int> P4; // P4
     thrust::device_vector<int> P5; // P5
     thrust::device_vector<int> P6; // P6
+    
+    thrust::device_vector<double> eq_prism_volume;
     
     int num_prisms;
     
@@ -338,7 +338,7 @@ struct LJInfoVecs{
   	double epsilon_LJ;
   	double epsilon_LJ_rep1;
   	double epsilon_LJ_rep2;
-  	double spring_constant;
+  	double spring_constant=0.5;
   
   	// Temporary vectors used for computation.
     thrust::device_vector<int> node_id_close;
@@ -357,9 +357,9 @@ struct LJInfoVecs{
 struct AreaTriangleInfoVecs {
 	double dummy;
 	int factor = 3; // Used for reduction.
-	double initial_area = 0.0048013; // Initial area of triangle. 
-	double spring_constant = 5.0;
-	double spring_constant_weak = 5.0;
+	double initial_area; //= 0.0048013; // Initial area of triangle. 
+	double spring_constant = 0.01;
+	double spring_constant_weak = 0.01;
 
 	double area_triangle_energy;
   
@@ -381,7 +381,7 @@ struct BendingTriangleInfoVecs {
 	int numBendingSprings=0;
 
 	int factor = 4; // Used for reduction.
-	double spring_constant = 5.0;
+	double spring_constant = 1.0;
 	double spring_constant_weak;
 	double spring_constant_raft;
 	double spring_constant_coat;
@@ -408,36 +408,83 @@ struct BendingTriangleInfoVecs {
 // Struct to store information related to linear springs (edges).
 struct LinearSpringInfoVecs {
 
-	double apical_spring_constant = 5.0;
-  double basal_spring_constant = 5.0;
-  double spring_constant_vertical = 5.0; // spring constant for the vertical springs in the double layer eversion model. 
-  
-  int factor = 2; // Used for reduction.
-	double spring_constant = 5.0;
-	double spring_constant_weak = 5.0;
-	double spring_constant_att1 = 5.0;
-	double spring_constant_att2;
-	double spring_constant_rep1; // This is the "D" in Morse potential
-	double spring_constant_rep2; // This is the "a" in Morse potential
+  // =====================================================================
+  // REGION × LAYER SPRING CONSTANTS (10 parameters)
+  //
+  // Each horizontal edge is classified by BOTH its layer AND its D/V region.
+  // Vertical edges get their own single constant.
+  //
+  // Layer classification (from edges_in_upperhem):
+  //   N+1     = apical
+  //   1..N    = body
+  //   0       = basal
+  //   -1      = vertical
+  //
+  // D/V region classification (from node Y coordinates):
+  //   both Y < 0         = dorsal
+  //   both Y > 0         = ventral
+  //   straddle Y=0       = DV boundary
+  //
+  // Set via XML <settings> or SystemBuilder defaults.
+  // Baked into edge_spring_k[] by buildEdgeSpringConstants().
+  // =====================================================================
 
-	double linear_spring_energy;
-	double memrepulsion_energy;
-	double scalar_edge_length;
-	
-	thrust::device_vector<double> edge_initial_length;
+  // Apical layer (layer N+1) — subdivided by D/V region
+  double k_apical_dorsal   = 3.0;
+  double k_apical_ventral  = 3.0;
+  double k_apical_DV       = 12.0;
+
+  // Body layers (layers 1..N) — subdivided by D/V region
+  double k_body_dorsal     = 5.0;
+  double k_body_ventral    = 5.0;
+  double k_body_DV         = 12.0;
+
+  // Basal layer (layer 0) — subdivided by D/V region
+  double k_basal_dorsal    = 9.0;
+  double k_basal_ventral   = 9.0;
+  double k_basal_DV        = 12.0;
+
+  // Vertical edges (layer -1) — single value
+  double k_vertical        = 9.0;
+
+  // Pre-computed per-edge spring constant array (size = num_edges).
+  // Built by buildEdgeSpringConstants(). The GPU functor reads:
+  //   double k = edge_spring_k[edge_index];
+  thrust::device_vector<double> edge_spring_k;
+
+  // =====================================================================
+  // LEGACY FIELDS (kept for backward compatibility)
+  // =====================================================================
+  double apical_spring_constant = 0.01;
+  double basal_spring_constant = 0.01;
+  double spring_constant_vertical = 0.01;
+
+  int factor = 2; // Used for reduction.
+  double spring_constant = 0.01;
+  double spring_constant_weak = 0.05;
+  double spring_constant_att1 = 0.05;
+  double spring_constant_att2;
+  double spring_constant_rep1;
+  double spring_constant_rep2;
+
+  double linear_spring_energy;
+  double memrepulsion_energy;
+  double scalar_edge_length;
+
+  thrust::device_vector<double> edge_initial_length;
   thrust::device_vector<double> edge_rest_length;
   thrust::device_vector<double> edge_final_length;
 
   // Temporary vectors used for computation. 
-	thrust::device_vector<int> tempNodeIdUnreduced;
-	thrust::device_vector<double> tempNodeForceXUnreduced;
-	thrust::device_vector<double> tempNodeForceYUnreduced;
-	thrust::device_vector<double> tempNodeForceZUnreduced;
+  thrust::device_vector<int> tempNodeIdUnreduced;
+  thrust::device_vector<double> tempNodeForceXUnreduced;
+  thrust::device_vector<double> tempNodeForceYUnreduced;
+  thrust::device_vector<double> tempNodeForceZUnreduced;
 
-	thrust::device_vector<int> tempNodeIdReduced;
-	thrust::device_vector<double> tempNodeForceXReduced;
-	thrust::device_vector<double> tempNodeForceYReduced;
-	thrust::device_vector<double> tempNodeForceZReduced;
+  thrust::device_vector<int> tempNodeIdReduced;
+  thrust::device_vector<double> tempNodeForceXReduced;
+  thrust::device_vector<double> tempNodeForceYReduced;
+  thrust::device_vector<double> tempNodeForceZReduced;
 };
 
 // Struct to store general parameters of the system.
@@ -455,9 +502,9 @@ struct GeneralParams{
   double Tf; //= 15.0;
   double gamma = 0.1; //friction
   // growth / bending options
- // bool useEdgeProjection      = true;  // lambda·e projection instead of lambda_rr average
+ // bool useEdgeProjection      = true;  // lambda?e projection instead of lambda_rr average
   bool enableBendAnisotropy   = true;  // spontaneous-curvature coupling
-  double thickness        = 0.10;    // t  in  C0 = (lambda ff – lambda rr)/t
+  double thickness        = 0.10;    // t  in  C0?=?(lambda ff ? lambda rr)/t
   double tol;// = 1e-4;//tol of 1e-5 and 1e-6 are too low. The positions begin to oscillate and there is no convergence. So we stick to 1e-4. I'm now going to 1e-9. This works but takes too long so I am submitting a different sim with 1e-4
   
   int num_layers;
@@ -511,7 +558,7 @@ struct GeneralParams{
 	double current_total_volume;
 	double true_current_total_volume;
 	double eq_total_volume;
-	double volume_spring_constant = 0.00001;
+	double volume_spring_constant = 0.0001;
 	double volume_energy;
 	double eq_total_boundary_length;
 	double line_tension_energy;
@@ -527,7 +574,7 @@ struct GeneralParams{
 	double strain_threshold;
 	double strain_threshold2;
 
-	int SCALE_TYPE;
+	int SCALE_TYPE = 3;
 	double scaling_pow;
 	double gausssigma;
 	double hilleqnconst;
@@ -571,7 +618,7 @@ struct GeneralParams{
 
 
   // Strain field (lambda) values in the outDV region at different stages of eversion.
-  double lambda_iso_center_outDV = 1.0; //   wl3-0hAPF (-0.12406004) | wl3-2hAPF (-0.29431527) | wl3-4hAPF (-0.20050286)
+  double lambda_iso_center_outDV = 1.0; //   wl3-0hAPF (-0.12406004) | wl3-2hAPF (-0.29431527) | wl3-4hAPF (-0.20050286) 8 layers in total. 
   double lambda_iso_edge_outDV = 1.0; //      wl3-0hAPF ( 1.20789496) | wl3-2hAPF ( 1.44256030) | wl3-4hAPF ( 1.43479468)
   double lambda_aniso_center_outDV = 1.0;//  wl3-0hAPF (-0.06172103) | wl3-2hAPF ( 0.21823128) | wl3-4hAPF ( 0.29444448)
   double lambda_aniso_edge_outDV = 1.0; //    wl3-0hAPF ( 1.01053997) | wl3-2hAPF ( 0.98874841) | wl3-4hAPF ( 0.97652462)
@@ -664,6 +711,10 @@ public:
 	//void Solve_Forces(const gsl_vector* temp_locations);
 	void Solve_Forces();
 	//double Solve_Energy(const gsl_vector* temp_locations);
+  
+  // Build per-edge spring constant array from the 10 region×layer k values.
+  // Call after initializeSystem() and whenever you change any k_* values.
+  void buildEdgeSpringConstants();
   
 	//void dev_to_gsl_loc_update(gsl_vector* temp_locations);
 	//void gsl_to_dev_loc_update(const gsl_vector* temp_locations);

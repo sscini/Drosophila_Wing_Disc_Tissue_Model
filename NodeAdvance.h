@@ -39,9 +39,23 @@ struct SaxpyFunctorPrimary {
         CVec3 operator()(const BoolCVec3 &p3, const CVec3 &f3) {
             bool isFixed = thrust::get<0>(p3);//true if fixed, false if movable. 
 
-		        //if (isFixed == false) {
-   
+		        if (isFixed == true) {
+                 double d_x = dt * thrust::get<0>(f3);
+                double d_y = dt * thrust::get<1>(f3);
+                double d_z = dt * thrust::get<2>(f3);
+                
+                //dx += sqrt((d_x*d_x)+(d_y*d_y)+(d_z*d_z));
+          			//return thrust::make_tuple(thrust::get<1>(p3),thrust::get<2>(p3),thrust::get<3>(p3) );
+          			double xLocNew = thrust::get<1>(p3) + dt*0.001 * thrust::get<0>(f3);//dt/mass * thrust::get<0>(f3);
+          			double yLocNew = thrust::get<2>(p3) + dt*0.001 * thrust::get<1>(f3);//dt/mass * thrust::get<1>(f3);
+          			double zLocNew = thrust::get<3>(p3) + dt*0.001 * thrust::get<2>(f3);//dt/mass * thrust::get<2>(f3);
+          			
+          			return thrust::make_tuple(xLocNew, yLocNew, zLocNew);
       
+   
+                
+		        }
+		        else {
    
                 double d_x = dt * thrust::get<0>(f3);
                 double d_y = dt * thrust::get<1>(f3);
@@ -56,21 +70,10 @@ struct SaxpyFunctorPrimary {
           
           
           			return thrust::make_tuple(xLocNew, yLocNew, zLocNew);
-		        ///}
-//		        else {
-//   
-//                double d_x = dt * thrust::get<0>(f3);
-//                double d_y = dt * thrust::get<1>(f3);
-//                double d_z = dt * thrust::get<2>(f3);
-//                
-//                //dx += sqrt((d_x*d_x)+(d_y*d_y)+(d_z*d_z));
-//          			//return thrust::make_tuple(thrust::get<1>(p3),thrust::get<2>(p3),thrust::get<3>(p3) );
-//          			double xLocNew = thrust::get<1>(p3) + 0.00001 * thrust::get<0>(f3);//dt/mass * thrust::get<0>(f3);
-//          			double yLocNew = thrust::get<2>(p3) + 0.00001 * thrust::get<1>(f3);//dt/mass * thrust::get<1>(f3);
-//          			double zLocNew = thrust::get<3>(p3) + 0.00001 * thrust::get<2>(f3);//dt/mass * thrust::get<2>(f3);
-//          			
-//          			return thrust::make_tuple(xLocNew, yLocNew, zLocNew);
-//		        }
+		        }
+            //else {
+               // std::cout<<"nodes did not move. come debug me. "<<std::endl;
+            //}
 	      }                                                 
 
     };

@@ -45,6 +45,18 @@ public:
     double defaultLJ_Z = -0.1; // Default Lennard-Jones Z value.
     double defaultLayers = 8.0;
 
+    // Region × Layer spring constant defaults (10 parameters)
+    double default_k_apical_dorsal   = 3.0;
+    double default_k_apical_ventral  = 3.0;
+    double default_k_apical_DV       = 12.0;
+    double default_k_body_dorsal     = 5.0;
+    double default_k_body_ventral    = 5.0;
+    double default_k_body_DV         = 12.0;
+    double default_k_basal_dorsal    = 9.0;
+    double default_k_basal_ventral   = 9.0;
+    double default_k_basal_DV        = 12.0;
+    double default_k_vertical        = 5.0;
+
     double defaultEdgeEq = 100.0; // Default equilibrium length for edges (can be overridden by input).
     double defaultAreaEq = 0.0; // Default equilibrium area for triangles (can be overridden by input).
     double defaultAngleEq = 0.00087; // Default equilibrium angle for bending triangles (can be overridden by input).

@@ -84,6 +84,8 @@ void ComputeAreaTriangleSprings(
                     thrust::raw_pointer_cast(coordInfoVecs.nodeLocX.data()),
                     thrust::raw_pointer_cast(coordInfoVecs.nodeLocY.data()),
                     thrust::raw_pointer_cast(coordInfoVecs.nodeLocZ.data()),
+                    // NEW: pass node layer flags for cross-layer triangle filtering
+                    thrust::raw_pointer_cast(generalParams.nodes_in_upperhem.data()),
                     thrust::raw_pointer_cast(areaTriangleInfoVecs.tempNodeIdUnreduced.data()),
                     thrust::raw_pointer_cast(areaTriangleInfoVecs.tempNodeForceXUnreduced.data()),
                     thrust::raw_pointer_cast(areaTriangleInfoVecs.tempNodeForceYUnreduced.data()),
